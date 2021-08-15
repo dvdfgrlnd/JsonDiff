@@ -20,6 +20,7 @@ enum DiffType<'a> {
     ObjectValueDiff(&'a str, JsonVPair<'a>),
     Element(JsonV<'a>, JsonVPair<'a>),
     Primitive(JsonVPair<'a>),
+    DifferentTypes(JsonVPair<'a>)
 }
 
 #[derive(Clone, Debug)]
@@ -47,8 +48,8 @@ fn diff(a: &str, b: &str) -> Result<()> {
     Ok(())
 }
 
-fn diff_rec<'a>(a: &'a Value, b: &'a Value) -> JsonV<'a> {
-    match (a, b) {
+fn diff_rec<'a>(a0: &'a Value, b0: &'a Value) -> (bool, JsonV<'a>) {
+    match (a0, b0) {
         // Check keys first then values
         (Value::Object(p1), Value::Object(p2)) => {
             // Find fields not in the other and vice versa
@@ -60,13 +61,16 @@ fn diff_rec<'a>(a: &'a Value, b: &'a Value) -> JsonV<'a> {
             // Find fields where the values differ in the two structures
 
             let mut value_diff: Vec<DiffType> = Vec::new();
+            let mut same_values: HashMap<String,JsonV> = HashMap::new();
             for k in union(a.clone(), b.clone()) {
                 if let (Some(v1), Some(v2)) = (p1.get(k), p2.get(k)) {
-                    let res = diff_rec(v1, v2);
-                    println!("1. {} {:?}", k, res);
+                    let (b, res) = diff_rec(v1, v2);
+                    println!("1. {} {} {:?}", k, b, res);
                     let r2 = get_status(res.clone());
-                    if r2.is_some() {
+                    if b {
                         value_diff.push(DiffType::ObjectValueDiff(k, (convert(v1), convert(v2))));
+                    } else {
+                        same_values.insert(k.to_string(), res);
                     }
                 }
             }
@@ -78,9 +82,7 @@ fn diff_rec<'a>(a: &'a Value, b: &'a Value) -> JsonV<'a> {
                 && value_diff.is_empty()
             {
                 // Objects are the same
-                let f1 = |x: String| (x.to_string(), convert(p1.get(&x.to_string()).unwrap()));
-                let hm: HashMap<String, JsonV> = a.iter().map(|y| f1(y.to_string())).collect();
-                JsonV::Object(hm, None)
+                JsonV::Object(same_values, None)
             } else {
                 // Not the same
                 let f1 = |x| DiffType::ObjectKeyPresent(x, convert(p1.get(x).unwrap()));
@@ -92,48 +94,53 @@ fn diff_rec<'a>(a: &'a Value, b: &'a Value) -> JsonV<'a> {
                 v1.extend(value_diff);
 
                 JsonV::Object(
-                    HashMap::new(),
+                    same_values,
                     Some(Status {
                         different_values: v1,
                     }),
                 )
             };
 
-            println!("{:?}", fields_in_a_not_b);
-            println!("{:?}", fields_in_b_not_a);
-            println!("{:?}", df);
-            res
+            println!("0. {:?} {:?}", a0, b0);
+            println!("2. {:?}", fields_in_a_not_b);
+            println!("3. {:?}", fields_in_b_not_a);
+            println!("4. {:?}", df);
+            (false, res)
         }
         // Check equal number of elements and element equality
-        (Value::Array(p1), Value::Array(p2)) => JsonV::Null(None),
+        (Value::Array(p1), Value::Array(p2)) => (false, JsonV::Null(None)),
         (Value::String(p1), Value::String(p2)) => {
-            if p1 == p2 {
+            let k = if p1 == p2 {
                 JsonV::String(p1.to_string(), None)
             } else {
-                let v1 = DiffType::Primitive((convert(a), convert(b)));
+                let v1 = DiffType::Primitive((convert(a0), convert(b0)));
                 JsonV::String(
                     "".to_string(),
                     Some(Status {
                         different_values: vec![v1],
                     }),
                 )
-            }
+            };
+            (false, k)
         }
         (Value::Number(p1), Value::Number(p2)) => {
-            if cmp_option(p1.as_f64(), p2.as_f64()) {
+            println!("6. {:?} {:?}", p1, p2);
+            let k = if cmp_option(p1.as_f64(), p2.as_f64()) {
                 JsonV::Number(p1.as_f64().unwrap(), None)
             } else {
-                let v1 = DiffType::Primitive((convert(a), convert(b)));
+                println!("8. {:?} {:?}", p1, p2);
+                let v1 = DiffType::Primitive((convert(a0), convert(b0)));
                 JsonV::Number(
                     0.0,
                     Some(Status {
                         different_values: vec![v1],
                     }),
                 )
-            }
+            };
+            (false, k)
         }
         (Value::Bool(p1), Value::Bool(p2)) => {
-            if p1 == p2 {
+            let k = if p1 == p2 {
                 JsonV::Bool(*p1, None)
             } else {
                 let v1 = DiffType::Primitive((JsonV::Bool(*p1, None), JsonV::Bool(*p2, None)));
@@ -143,18 +150,22 @@ fn diff_rec<'a>(a: &'a Value, b: &'a Value) -> JsonV<'a> {
                         different_values: vec![v1],
                     }),
                 )
-            }
+            };
+            (false, k)
         }
-        (Value::Null, Value::Null) => JsonV::Null(None),
-        _ => JsonV::Null(Some(Status {
-            different_values: vec![],
-        })),
+        (Value::Null, Value::Null) => (false, JsonV::Null(None)),
+        _ => (true, JsonV::Null(Some(Status {
+            different_values: vec![DiffType::DifferentTypes((convert(a0), convert(b0)))],
+        }))),
     }
 }
 
 fn cmp_option<T: std::string::ToString>(a: Option<T>, b: Option<T>) -> bool {
     match (a, b) {
-        (Some(a), Some(b)) => a.to_string() == b.to_string(),
+        (Some(a), Some(b)) =>{
+            println!("7. {:?} {:?}", a.to_string(), b.to_string());
+             a.to_string() == b.to_string()
+            },
         (None, None) => false,
         _ => false,
     }
@@ -291,8 +302,13 @@ mod tests {
         let r = r#"
             {
             "f1": "v2",
-            "f2": "v4",
-            "f3": "v5"
+            "f2": {
+                "f3": 456,
+                "f4": 123
+            },
+            "f3": {
+                "f5": "v6"
+            }
         }"#;
         let r2 = r#"
             {
@@ -301,11 +317,11 @@ mod tests {
                 "f3": 456,
                 "f4": 456
             },
-            "f5": "v6"
+            "f3": "v6"
         }"#;
 
-        println!("{:?}", r);
-        println!("{:?}", r2);
+        println!("{}", r);
+        println!("{}", r2);
 
         // diff(r, r2);
         let ja: Value = serde_json::from_str(r)?;
@@ -313,8 +329,9 @@ mod tests {
         let c = convert(&ja);
         let c2 = diff_rec(&ja, &jb);
 
-        println!("{}", r2);
-        println!("{:?}", c);
+        // println!("{}", r2);
+        // println!("{:?}", c);
+        println!("");
         println!("{:?}", c2);
         Ok(())
     }
