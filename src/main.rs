@@ -17,10 +17,23 @@ type JsonVPair<'a> = (JsonV<'a>, JsonV<'a>);
 enum DiffType<'a> {
     ObjectKeyMissing(&'a str, JsonV<'a>),
     ObjectKeyPresent(&'a str, JsonV<'a>),
-    ObjectValueDiff(&'a str, JsonVPair<'a>),
-    Element(JsonV<'a>, JsonVPair<'a>),
+    ObjectValueDiff(&'a str, DiffType2<'a>),
+    // Element(JsonV<'a>, JsonVPair<'a>),
+    // Primitive(JsonVPair<'a>),
+    // DifferentTypes(JsonVPair<'a>),
+}
+
+#[derive(Clone, Debug)]
+enum DiffType2<'a> {
     Primitive(JsonVPair<'a>),
-    DifferentTypes(JsonVPair<'a>)
+    DifferentTypes(JsonVPair<'a>),
+    ObjectValueDiff(JsonV<'a>),
+}
+
+#[derive(Clone, Debug)]
+enum Either<L: std::clone::Clone, R: std::clone::Clone> {
+    Left(L),
+    Right(R),
 }
 
 #[derive(Clone, Debug)]
@@ -48,124 +61,111 @@ fn diff(a: &str, b: &str) -> Result<()> {
     Ok(())
 }
 
-fn diff_rec<'a>(a0: &'a Value, b0: &'a Value) -> (bool, JsonV<'a>) {
+fn diff_rec<'a>(a0: &'a Value, b0: &'a Value) -> Either<JsonV<'a>, DiffType2<'a>> {
     match (a0, b0) {
         // Check keys first then values
-        (Value::Object(p1), Value::Object(p2)) => {
+        (Value::Object(a_obj), Value::Object(b_obj)) => {
             // Find fields not in the other and vice versa
-            let a: Vec<_> = p1.keys().collect();
-            let b: Vec<_> = p2.keys().collect();
-            let fields_in_b_not_a = a_intersection_complement_b(b.clone(), a.clone());
-            let fields_in_a_not_b = a_intersection_complement_b(a.clone(), b.clone());
+            let a_keys: Vec<_> = a_obj.keys().collect();
+            let b_keys: Vec<_> = b_obj.keys().collect();
+            let fields_in_b_not_a = a_intersection_complement_b(b_keys.clone(), a_keys.clone());
+            let fields_in_a_not_b = a_intersection_complement_b(a_keys.clone(), b_keys.clone());
 
             // Find fields where the values differ in the two structures
 
-            let mut value_diff: Vec<DiffType> = Vec::new();
-            let mut same_values: HashMap<String,JsonV> = HashMap::new();
-            for k in union(a.clone(), b.clone()) {
-                if let (Some(v1), Some(v2)) = (p1.get(k), p2.get(k)) {
-                    let (b, res) = diff_rec(v1, v2);
-                    println!("1. {} {} {:?}", k, b, res);
-                    let r2 = get_status(res.clone());
-                    if b {
-                        value_diff.push(DiffType::ObjectValueDiff(k, (convert(v1), convert(v2))));
-                    } else {
-                        same_values.insert(k.to_string(), res);
+            let mut differences: Vec<DiffType> = Vec::new();
+            let mut similarities: HashMap<String, JsonV> = HashMap::new();
+            for key in union(a_keys.clone(), b_keys.clone()) {
+                if let (Some(a_value), Some(b_value)) = (a_obj.get(key), b_obj.get(key)) {
+                    match diff_rec(a_value, b_value) {
+                        Either::Left(json_element) if get_status(&json_element).is_some() => {
+                            differences.push(DiffType::ObjectValueDiff(
+                                key,
+                                DiffType2::ObjectValueDiff(json_element),
+                            ));
+                        }
+                        Either::Left(json_element) => {
+                            similarities.insert(key.to_string(), json_element);
+                        }
+                        Either::Right(status) => {
+                            differences.push(DiffType::ObjectValueDiff(key, status));
+                        }
                     }
                 }
             }
 
-            let df = value_diff.clone();
+            let df = differences.clone();
 
-            let res = if fields_in_a_not_b.is_empty()
+            let status = if fields_in_a_not_b.is_empty()
                 && fields_in_b_not_a.is_empty()
-                && value_diff.is_empty()
+                && differences.is_empty()
             {
                 // Objects are the same
-                JsonV::Object(same_values, None)
+                None
             } else {
                 // Not the same
-                let f1 = |x| DiffType::ObjectKeyPresent(x, convert(p1.get(x).unwrap()));
-                let f2 = |x| DiffType::ObjectKeyMissing(x, convert(p2.get(x).unwrap()));
+                let f1 = |x| DiffType::ObjectKeyPresent(x, convert(a_obj.get(x).unwrap()));
+                let f2 = |x| DiffType::ObjectKeyMissing(x, convert(b_obj.get(x).unwrap()));
                 let mut v1: Vec<DiffType> = fields_in_a_not_b.iter().map(|y| f1(y)).collect();
                 let v2: Vec<DiffType> = fields_in_b_not_a.iter().map(|y| f2(y)).collect();
 
                 v1.extend(v2);
-                v1.extend(value_diff);
+                v1.extend(differences);
 
-                JsonV::Object(
-                    same_values,
-                    Some(Status {
-                        different_values: v1,
-                    }),
-                )
+                Some(Status {
+                    different_values: v1,
+                })
             };
+            let res = JsonV::Object(similarities, status);
 
             println!("0. {:?} {:?}", a0, b0);
             println!("2. {:?}", fields_in_a_not_b);
             println!("3. {:?}", fields_in_b_not_a);
             println!("4. {:?}", df);
-            (false, res)
+            Either::Left(res)
         }
         // Check equal number of elements and element equality
-        (Value::Array(p1), Value::Array(p2)) => (false, JsonV::Null(None)),
+        (Value::Array(p1), Value::Array(p2)) => Either::Left(JsonV::Null(None)),
         (Value::String(p1), Value::String(p2)) => {
             let k = if p1 == p2 {
-                JsonV::String(p1.to_string(), None)
+                Either::Left(JsonV::String(p1.to_string(), None))
             } else {
-                let v1 = DiffType::Primitive((convert(a0), convert(b0)));
-                JsonV::String(
-                    "".to_string(),
-                    Some(Status {
-                        different_values: vec![v1],
-                    }),
-                )
+                let v1 = DiffType2::Primitive((convert(a0), convert(b0)));
+                Either::Right(v1)
             };
-            (false, k)
+            k
         }
         (Value::Number(p1), Value::Number(p2)) => {
             println!("6. {:?} {:?}", p1, p2);
             let k = if cmp_option(p1.as_f64(), p2.as_f64()) {
-                JsonV::Number(p1.as_f64().unwrap(), None)
+                Either::Left(JsonV::Number(p1.as_f64().unwrap(), None))
             } else {
                 println!("8. {:?} {:?}", p1, p2);
-                let v1 = DiffType::Primitive((convert(a0), convert(b0)));
-                JsonV::Number(
-                    0.0,
-                    Some(Status {
-                        different_values: vec![v1],
-                    }),
-                )
+                let v1 = DiffType2::Primitive((convert(a0), convert(b0)));
+                Either::Right(v1)
             };
-            (false, k)
+            k
         }
         (Value::Bool(p1), Value::Bool(p2)) => {
             let k = if p1 == p2 {
-                JsonV::Bool(*p1, None)
+                Either::Left(JsonV::Bool(*p1, None))
             } else {
-                let v1 = DiffType::Primitive((JsonV::Bool(*p1, None), JsonV::Bool(*p2, None)));
-                JsonV::Bool(
-                    false,
-                    Some(Status {
-                        different_values: vec![v1],
-                    }),
-                )
+                let v1 = DiffType2::Primitive((JsonV::Bool(*p1, None), JsonV::Bool(*p2, None)));
+                Either::Right(v1)
             };
-            (false, k)
+            k
         }
-        (Value::Null, Value::Null) => (false, JsonV::Null(None)),
-        _ => (true, JsonV::Null(Some(Status {
-            different_values: vec![DiffType::DifferentTypes((convert(a0), convert(b0)))],
-        }))),
+        (Value::Null, Value::Null) => Either::Left(JsonV::Null(None)),
+        _ => Either::Right(DiffType2::DifferentTypes((convert(a0), convert(b0)))),
     }
 }
 
 fn cmp_option<T: std::string::ToString>(a: Option<T>, b: Option<T>) -> bool {
     match (a, b) {
-        (Some(a), Some(b)) =>{
+        (Some(a), Some(b)) => {
             println!("7. {:?} {:?}", a.to_string(), b.to_string());
-             a.to_string() == b.to_string()
-            },
+            a.to_string() == b.to_string()
+        }
         (None, None) => false,
         _ => false,
     }
@@ -199,14 +199,14 @@ fn convert<'a>(a: &Value) -> JsonV<'a> {
     }
 }
 
-fn get_status(j: JsonV) -> Option<Status> {
+fn get_status<'a>(j: &'a JsonV) -> Option<Status<'a>> {
     match j {
-        JsonV::Null(st) => st,
-        JsonV::String(_, st) => st,
-        JsonV::Bool(_, st) => st,
-        JsonV::Number(_, st) => st,
-        JsonV::Object(_, st) => st,
-        JsonV::Array(_, st) => st,
+        JsonV::Null(st) => st.clone(),
+        JsonV::String(_, st) => st.clone(),
+        JsonV::Bool(_, st) => st.clone(),
+        JsonV::Number(_, st) => st.clone(),
+        JsonV::Object(_, st) => st.clone(),
+        JsonV::Array(_, st) => st.clone(),
     }
 }
 
@@ -280,6 +280,8 @@ mod tests {
         let r = r#"
             {
             "f1": "v2",
+            "f8": "v1",
+            "f3": false,
             "f2": {
                 "f3": 123,
                 "f4": 456
@@ -288,6 +290,8 @@ mod tests {
         let r2 = r#"
             {
             "f1": "v2",
+            "f8": "v2",
+            "f3": true,
             "f2": {
                 "f3": 456,
                 "f4": 456
@@ -302,9 +306,13 @@ mod tests {
         let r = r#"
             {
             "f1": "v2",
+            "f8": "v0",
+            "f9": false,
             "f2": {
                 "f3": 456,
-                "f4": 123
+                "f4": {
+                    "f0":123
+                }
             },
             "f3": {
                 "f5": "v6"
@@ -313,9 +321,13 @@ mod tests {
         let r2 = r#"
             {
             "f1": "v2",
+            "f8": "v1",
+            "f9": true,
             "f2": {
                 "f3": 456,
-                "f4": 456
+                "f4": {
+                    "f0":122
+                }
             },
             "f3": "v6"
         }"#;
