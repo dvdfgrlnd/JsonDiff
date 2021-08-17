@@ -1,4 +1,5 @@
 use serde_json::{Result, Value};
+use std::cmp;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -18,6 +19,8 @@ enum DiffType<'a> {
     ObjectKeyMissing(&'a str, JsonV<'a>),
     ObjectKeyPresent(&'a str, JsonV<'a>),
     ObjectValueDiff(&'a str, DiffType2<'a>),
+    ArrayValueMissing(usize, DiffType2<'a>),
+    ArrayValuePresent(usize, DiffType2<'a>),
     // Element(JsonV<'a>, JsonVPair<'a>),
     // Primitive(JsonVPair<'a>),
     // DifferentTypes(JsonVPair<'a>),
@@ -125,7 +128,26 @@ fn diff_rec<'a>(a0: &'a Value, b0: &'a Value) -> Either<JsonV<'a>, DiffType2<'a>
             Either::Left(res)
         }
         // Check equal number of elements and element equality
-        (Value::Array(p1), Value::Array(p2)) => Either::Left(JsonV::Null(None)),
+        (Value::Array(arr1), Value::Array(arr2)) => {
+            let arr1_values: Vec<String> = arr1.iter().map(|x| x.to_string()).collect();
+            let arr2_values: Vec<String> = arr2.iter().map(|x| x.to_string()).collect();
+            let arr2_values2: Vec<String> = arr2.iter().map(|x| x.to_string()).collect();
+            let same: Vec<usize> = Vec::new();
+            for (i, v) in arr1_values.iter().enumerate() {
+                if arr2_values2.contains(v) {
+                    // same.push(i);
+                }
+            }
+            // let k = if present.is_empty() && missing.is_empty() {
+            // }else {
+
+            //     Some(Status {
+            //         different_values: v1,
+            //     })
+            // }
+            // Either::Left(JsonV::Array())
+            Either::Left(JsonV::Null(None))
+        }
         (Value::String(p1), Value::String(p2)) => {
             let k = if p1 == p2 {
                 Either::Left(JsonV::String(p1.to_string(), None))
@@ -230,6 +252,71 @@ fn union<T: std::clone::Clone + std::cmp::Ord>(s: Vec<T>, other: Vec<T>) -> Vec<
     stack.dedup();
 
     stack
+}
+
+fn edit_distance<T: std::cmp::Eq>(s1: Vec<T>, s2: Vec<T>) -> Vec<Vec<usize>> {
+    let h = s1.len() + 1;
+    let w = s2.len() + 1;
+    let mut m: Vec<usize> = vec![Default::default(); w * h];
+    let mut backtrack: Vec<(i32, i32)> = vec![Default::default(); w * h];
+    let get = |x: usize, y: usize| x + (y * w);
+    // Init
+    for i in 0..h {
+        m[get(0, i)] = i;
+    }
+    for i in 0..w {
+        m[get(i, 0)] = i;
+    }
+    // Compute
+    let v2: Vec<(i32, i32)> = vec![(-1, 0), (0, -1), (-1, -1)];
+    for y in 1..(s1.len() + 1) {
+        for x in 1..(s2.len() + 1) {
+            let substitution_cost = if s1[y - 1] == s2[x - 1] { 0 } else { 1 };
+            let v = vec![
+                m[get(x - 1, y)] + 1,
+                m[get(x, y - 1)] + 1,
+                m[get(x - 1, y - 1)] + substitution_cost,
+            ];
+            let i = min_arg(&v);
+            backtrack[get(x, y)] = v2[i];
+            let mn = v[i];
+            m[get(x, y)] = mn;
+        }
+    }
+    let mut m4: Vec<Vec<(i32, i32)>> = Vec::new();
+    for y in 0..h {
+        let mut t = Vec::new();
+        for x in 0..w {
+            t.push(backtrack[get(x, y)]);
+        }
+        m4.push(t);
+    }
+    let f: fn(&Vec<(i32, i32)>) -> String = |m| {
+        m.iter()
+            .map(|x| format!("({}, {})", x.0, x.1))
+            .collect::<Vec<String>>()
+            .join(", ")
+    };
+    let s = m4.iter().map(f).collect::<Vec<String>>().join("\n");
+    println!("{}", s);
+
+    let mut m3: Vec<Vec<usize>> = Vec::new();
+    for y in 0..h {
+        let mut t = Vec::new();
+        for x in 0..w {
+            t.push(m[get(x, y)]);
+        }
+        m3.push(t);
+    }
+    return m3;
+}
+
+fn min_arg<T: std::cmp::Ord + std::clone::Clone>(v: &Vec<T>) -> usize {
+    v.iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(i, _)| i)
+        .unwrap()
 }
 
 fn eq_value(a: Value, b: Value) -> bool {
@@ -345,6 +432,20 @@ mod tests {
         // println!("{:?}", c);
         println!("");
         println!("{:?}", c2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_edit_distance() -> Result<()> {
+        let res = edit_distance("an act".chars().collect(), "a cat".chars().collect());
+        let f: fn(&Vec<usize>) -> String = |m| {
+            m.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<String>>()
+                .join(", ")
+        };
+        let s = res.iter().map(f).collect::<Vec<String>>().join("\n");
+        println!("{}", s);
         Ok(())
     }
 }
