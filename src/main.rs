@@ -283,7 +283,7 @@ fn union<T: std::clone::Clone + std::cmp::Ord>(s: Vec<T>, other: Vec<T>) -> Vec<
     stack
 }
 
-fn edit_distance<T: std::cmp::Eq>(s1: Vec<T>, s2: Vec<T>) -> Vec<Vec<usize>> {
+fn edit_distance<T: std::cmp::Eq>(s1: Vec<T>, s2: Vec<T>) -> Vec<EditType> {
     let h = s1.len() + 1;
     let w = s2.len() + 1;
     let mut m: Vec<usize> = vec![Default::default(); w * h];
@@ -333,37 +333,22 @@ fn edit_distance<T: std::cmp::Eq>(s1: Vec<T>, s2: Vec<T>) -> Vec<Vec<usize>> {
         m4.push(t);
     }
     let mut pos = (w - 1, h - 1);
-    let mut n = &backtrack[get(pos.0, pos.1)];
-    let mut r2: Vec<&EditType> = Vec::new();
+    backtrack.push(EditType::Unknown);
+    let mut n = backtrack.swap_remove(get(pos.0, pos.1));
+    let mut r2: Vec<EditType> = Vec::new();
     while !matches!(n, EditType::Unknown) {
-        r2.push(n);
         match n {
             EditType::Insert(_) => pos = (pos.0 - 1, pos.1),
             EditType::Delete(_) => pos = (pos.0, pos.1 - 1),
             EditType::Substitute(_, _, _) => pos = (pos.0 - 1, pos.1 - 1),
             EditType::Unknown => pos = (0, 0),
         }
-        n = &backtrack[get(pos.0, pos.1)];
+        r2.push(n);
+        backtrack.push(EditType::Unknown);
+        n = backtrack.swap_remove(get(pos.0, pos.1));
     }
-    println!("{:?}", r2);
-    let f: fn(&Vec<(i32, i32)>) -> String = |m| {
-        m.iter()
-            .map(|x| format!("({}, {})", x.0, x.1))
-            .collect::<Vec<String>>()
-            .join(", ")
-    };
-    let s = m4.iter().map(f).collect::<Vec<String>>().join("\n");
-    println!("{}", s);
-
-    let mut m3: Vec<Vec<usize>> = Vec::new();
-    for y in 0..h {
-        let mut t = Vec::new();
-        for x in 0..w {
-            t.push(m[get(x, y)]);
-        }
-        m3.push(t);
-    }
-    return m3;
+    
+    r2
 }
 
 fn min_arg<T: std::cmp::Ord + std::clone::Clone>(v: &Vec<T>) -> usize {
@@ -493,14 +478,14 @@ mod tests {
     #[test]
     fn test_edit_distance() -> Result<()> {
         let res = edit_distance("2334".chars().collect(), "1223344".chars().collect());
-        let f: fn(&Vec<usize>) -> String = |m| {
-            m.iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<String>>()
-                .join(", ")
-        };
-        let s = res.iter().map(f).collect::<Vec<String>>().join("\n");
-        println!("{}", s);
+        // let f: fn(&Vec<usize>) -> String = |m| {
+        //     m.iter()
+        //         .map(|x| x.to_string())
+        //         .collect::<Vec<String>>()
+        //         .join(", ")
+        // };
+        // let s = res.iter().map(f).collect::<Vec<String>>().join("\n");
+        println!("{:?}", res);
         Ok(())
     }
 }
