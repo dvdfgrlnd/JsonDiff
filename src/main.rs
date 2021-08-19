@@ -20,8 +20,8 @@ enum DiffType<'a> {
     ObjectKeyMissing(&'a str, JsonV<'a>),
     ObjectKeyPresent(&'a str, JsonV<'a>),
     ObjectValueDiff(&'a str, DiffType2<'a>),
-    ArrayValueMissing(usize, DiffType2<'a>),
-    ArrayValuePresent(usize, DiffType2<'a>),
+    ArrayValueInSecond(usize, JsonV<'a>),
+    ArrayValueInFirst(usize, JsonV<'a>),
     // Element(JsonV<'a>, JsonVPair<'a>),
     // Primitive(JsonVPair<'a>),
     // DifferentTypes(JsonVPair<'a>),
@@ -32,6 +32,7 @@ enum DiffType2<'a> {
     Primitive(JsonVPair<'a>),
     DifferentTypes(JsonVPair<'a>),
     ObjectValueDiff(JsonV<'a>),
+    ElementValueDiff(JsonV<'a>)
 }
 
 #[derive(Clone, Debug)]
@@ -160,21 +161,28 @@ fn diff_rec<'a>(a0: &'a Value, b0: &'a Value) -> Either<JsonV<'a>, DiffType2<'a>
         (Value::Array(arr1), Value::Array(arr2)) => {
             let arr1_values: Vec<String> = arr1.iter().map(|x| x.to_string()).collect();
             let arr2_values: Vec<String> = arr2.iter().map(|x| x.to_string()).collect();
-            let arr2_values2: Vec<String> = arr2.iter().map(|x| x.to_string()).collect();
-            let same: Vec<usize> = Vec::new();
-            for (i, v) in arr1_values.iter().enumerate() {
-                if arr2_values2.contains(v) {
-                    // same.push(i);
-                }
-            }
-            // let k = if present.is_empty() && missing.is_empty() {
-            // }else {
 
-            //     Some(Status {
-            //         different_values: v1,
-            //     })
-            // }
-            // Either::Left(JsonV::Array())
+            let mut res = edit_distance(arr1_values, arr2_values);
+            res.reverse();
+            let mut same:Vec<(usize, &Value)> = Vec::new();
+            let mut diffs: Vec<DiffType> = Vec::new();
+            let mut i: usize = 0;
+            for x in res {
+                match x {
+                    EditType::Insert(y) => diffs.push(DiffType::ArrayValueInSecond(i,convert(&arr2[y]))), 
+                    EditType::Delete(y) => diffs.push(DiffType::ArrayValueInFirst(i, convert(&arr1[y]))), 
+                    EditType::Substitute(y, _, is_same) if is_same => same.push((i, &arr1[y])),
+                    EditType::Substitute(y, z, _) => {
+                        diffs.push(DiffType::ArrayValueInSecond(i, convert(&arr2[z])));
+                        diffs.push(DiffType::ArrayValueInFirst(i, convert(&arr1[y])));
+                    },
+                    EditType::Unknown => ()
+                }
+                i += 1;
+            }
+            println!("same {:?}", same);
+            println!("diffs {:?}", diffs);
+            
             Either::Left(JsonV::Null(None))
         }
         (Value::String(p1), Value::String(p2)) => {
@@ -476,15 +484,40 @@ mod tests {
     }
 
     #[test]
+    fn test_diff_3() -> Result<()> {
+        let r = r#"
+            [
+                {"item1": 123}, 
+                {"item2": 123}, 
+                {"item3": 345}, 
+                {"item4": 345} 
+            ]
+            "#;
+        let r2 = r#"
+            [
+                {"item0": 123}, 
+                {"item2": 123}, 
+                {"item3": 123}, 
+                {"item5": 345}
+            ]
+            "#;
+
+        println!("{}", r);
+        println!("{}", r2);
+
+        // diff(r, r2);
+        let ja: Value = serde_json::from_str(r)?;
+        let jb: Value = serde_json::from_str(r2)?;
+        let c2 = diff_rec(&ja, &jb);
+
+        println!("");
+        println!("{:?}", c2);
+        Ok(())
+    }
+
+    #[test]
     fn test_edit_distance() -> Result<()> {
         let res = edit_distance("2334".chars().collect(), "1223344".chars().collect());
-        // let f: fn(&Vec<usize>) -> String = |m| {
-        //     m.iter()
-        //         .map(|x| x.to_string())
-        //         .collect::<Vec<String>>()
-        //         .join(", ")
-        // };
-        // let s = res.iter().map(f).collect::<Vec<String>>().join("\n");
         println!("{:?}", res);
         Ok(())
     }
