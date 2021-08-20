@@ -1,7 +1,8 @@
 use serde_json::{Result, Value};
-use std::cmp;
 use std::collections::HashMap;
-use std::fmt;
+
+mod edit_distance;
+use edit_distance::{edit_distance, EditType};
 
 #[derive(Clone, Debug)]
 enum JsonV<'a> {
@@ -9,7 +10,7 @@ enum JsonV<'a> {
     String(String, Option<Status<'a>>),
     Bool(bool, Option<Status<'a>>),
     Number(f64, Option<Status<'a>>),
-    Array(Vec<JsonV<'a>>, Option<Status<'a>>),
+    Array(Vec<(usize, JsonV<'a>)>, Option<Status<'a>>),
     Object(HashMap<String, JsonV<'a>>, Option<Status<'a>>),
 }
 
@@ -22,9 +23,6 @@ enum DiffType<'a> {
     ObjectValueDiff(&'a str, DiffType2<'a>),
     ArrayValueInSecond(usize, JsonV<'a>),
     ArrayValueInFirst(usize, JsonV<'a>),
-    // Element(JsonV<'a>, JsonVPair<'a>),
-    // Primitive(JsonVPair<'a>),
-    // DifferentTypes(JsonVPair<'a>),
 }
 
 #[derive(Clone, Debug)]
@@ -32,7 +30,6 @@ enum DiffType2<'a> {
     Primitive(JsonVPair<'a>),
     DifferentTypes(JsonVPair<'a>),
     ObjectValueDiff(JsonV<'a>),
-    ElementValueDiff(JsonV<'a>)
 }
 
 #[derive(Clone, Debug)]
@@ -41,48 +38,16 @@ enum Either<L: std::clone::Clone, R: std::clone::Clone> {
     Right(R),
 }
 
-#[derive(Clone, Debug)]
-enum EditType {
-    Insert(usize),
-    Delete(usize),
-    Substitute(usize, usize, bool),
-    Unknown,
-}
-
-impl Default for EditType {
-    fn default() -> Self {
-        EditType::Unknown
-    }
-}
-
-impl fmt::Display for EditType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let v = match self {
-            EditType::Insert(x) => format!("Insert({})", x),
-            EditType::Delete(x) => format!("Delete({})", x),
-            EditType::Substitute(x, y, is_same) => {
-                format!("Substitute({}, {}, is_same = {})", x, y, is_same)
-            }
-            EditType::Unknown => "Unknown".to_string(),
-        };
-        write!(f, "{}", v)
-    }
-}
 
 #[derive(Clone, Debug)]
 struct Status<'a> {
     different_values: Vec<DiffType<'a>>,
 }
 
-struct DiffResult {
-    value: Value,
-    is_diff: bool,
-}
-
-fn main() {
+fn main() -> Result<()> {
     println!("Hello, world!");
 
-    diff("", "");
+    diff("", "")
 }
 
 fn diff(a: &str, b: &str) -> Result<()> {
@@ -127,7 +92,7 @@ fn diff_rec<'a>(a0: &'a Value, b0: &'a Value) -> Either<JsonV<'a>, DiffType2<'a>
                 }
             }
 
-            let df = differences.clone();
+            // let df = differences.clone();
 
             let status = if fields_in_a_not_b.is_empty()
                 && fields_in_b_not_a.is_empty()
@@ -151,10 +116,6 @@ fn diff_rec<'a>(a0: &'a Value, b0: &'a Value) -> Either<JsonV<'a>, DiffType2<'a>
             };
             let res = JsonV::Object(similarities, status);
 
-            println!("0. {:?} {:?}", a0, b0);
-            println!("2. {:?}", fields_in_a_not_b);
-            println!("3. {:?}", fields_in_b_not_a);
-            println!("4. {:?}", df);
             Either::Left(res)
         }
         // Check equal number of elements and element equality
@@ -164,26 +125,35 @@ fn diff_rec<'a>(a0: &'a Value, b0: &'a Value) -> Either<JsonV<'a>, DiffType2<'a>
 
             let mut res = edit_distance(arr1_values, arr2_values);
             res.reverse();
-            let mut same:Vec<(usize, &Value)> = Vec::new();
+            let mut same: Vec<(usize, JsonV)> = Vec::new();
             let mut diffs: Vec<DiffType> = Vec::new();
             let mut i: usize = 0;
             for x in res {
                 match x {
-                    EditType::Insert(y) => diffs.push(DiffType::ArrayValueInSecond(i,convert(&arr2[y]))), 
-                    EditType::Delete(y) => diffs.push(DiffType::ArrayValueInFirst(i, convert(&arr1[y]))), 
-                    EditType::Substitute(y, _, is_same) if is_same => same.push((i, &arr1[y])),
+                    EditType::Insert(y) => {
+                        diffs.push(DiffType::ArrayValueInSecond(i, convert(&arr2[y])))
+                    }
+                    EditType::Delete(y) => {
+                        diffs.push(DiffType::ArrayValueInFirst(i, convert(&arr1[y])))
+                    }
+                    EditType::Substitute(y, _, is_same) if is_same => {
+                        same.push((i, convert(&arr1[y])))
+                    }
                     EditType::Substitute(y, z, _) => {
                         diffs.push(DiffType::ArrayValueInSecond(i, convert(&arr2[z])));
                         diffs.push(DiffType::ArrayValueInFirst(i, convert(&arr1[y])));
-                    },
-                    EditType::Unknown => ()
+                    }
+                    EditType::Unknown => (),
                 }
                 i += 1;
             }
-            println!("same {:?}", same);
-            println!("diffs {:?}", diffs);
-            
-            Either::Left(JsonV::Null(None))
+            let st = if diffs.is_empty() {
+                None
+            } else {
+                Some(Status{different_values: diffs})
+            };
+
+            Either::Left(JsonV::Array(same, st))
         }
         (Value::String(p1), Value::String(p2)) => {
             let k = if p1 == p2 {
@@ -252,7 +222,7 @@ fn convert<'a>(a: &Value) -> JsonV<'a> {
             JsonV::Object(map, None)
         }
         Value::Array(b) => {
-            let na = b.iter().map(convert).collect();
+            let na = b.iter().enumerate().map(|(i, v)| (i, convert(v))).collect();
             JsonV::Array(na, None)
         }
     }
@@ -291,150 +261,12 @@ fn union<T: std::clone::Clone + std::cmp::Ord>(s: Vec<T>, other: Vec<T>) -> Vec<
     stack
 }
 
-fn edit_distance<T: std::cmp::Eq>(s1: Vec<T>, s2: Vec<T>) -> Vec<EditType> {
-    let h = s1.len() + 1;
-    let w = s2.len() + 1;
-    let mut m: Vec<usize> = vec![Default::default(); w * h];
-    // Left is insert, up is delete, and diagonal is substitution
-    let mut backtrack: Vec<EditType> = vec![Default::default(); w * h];
-    let mut backtrack2: Vec<(i32, i32)> = vec![Default::default(); w * h];
-    let get = |x: usize, y: usize| x + (y * w);
-    // Init
-    for i in 0..h {
-        m[get(0, i)] = i;
-        backtrack[get(0, i)] = EditType::Delete(if i > 0 { i - 1 } else { 0 });
-    }
-    for i in 0..w {
-        m[get(i, 0)] = i;
-        backtrack[get(i, 0)] = EditType::Insert(if i > 0 { i - 1 } else { 0 });
-    }
-    backtrack[get(0, 0)] = EditType::Unknown;
-    // Compute
-    let v2 = vec![(-1, 0), (0, -1), (-1, -1)];
-    for y in 1..(s1.len() + 1) {
-        for x in 1..(s2.len() + 1) {
-            let substitution_cost = if s1[y - 1] == s2[x - 1] { 0 } else { 2 };
-            let v = vec![
-                m[get(x - 1, y)] + 1,
-                m[get(x, y - 1)] + 1,
-                m[get(x - 1, y - 1)] + substitution_cost,
-            ];
-            let i = min_arg(&v);
-            let v3 = match i {
-                0 => EditType::Insert(x - 1),
-                1 => EditType::Delete(y - 1),
-                2 => EditType::Substitute(y - 1, x - 1, substitution_cost == 0),
-                _ => EditType::Unknown,
-            };
-            backtrack[get(x, y)] = v3;
-            backtrack2[get(x, y)] = v2[i];
-            let mn = v[i];
-            m[get(x, y)] = mn;
-        }
-    }
-    let mut m4: Vec<Vec<(i32, i32)>> = Vec::new();
-    for y in 0..h {
-        let mut t = Vec::new();
-        for x in 0..w {
-            t.push(backtrack2[get(x, y)]);
-        }
-        m4.push(t);
-    }
-    let mut pos = (w - 1, h - 1);
-    backtrack.push(EditType::Unknown);
-    let mut n = backtrack.swap_remove(get(pos.0, pos.1));
-    let mut r2: Vec<EditType> = Vec::new();
-    while !matches!(n, EditType::Unknown) {
-        match n {
-            EditType::Insert(_) => pos = (pos.0 - 1, pos.1),
-            EditType::Delete(_) => pos = (pos.0, pos.1 - 1),
-            EditType::Substitute(_, _, _) => pos = (pos.0 - 1, pos.1 - 1),
-            EditType::Unknown => pos = (0, 0),
-        }
-        r2.push(n);
-        backtrack.push(EditType::Unknown);
-        n = backtrack.swap_remove(get(pos.0, pos.1));
-    }
-    
-    r2
-}
-
-fn min_arg<T: std::cmp::Ord + std::clone::Clone>(v: &Vec<T>) -> usize {
-    v.iter()
-        .enumerate()
-        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(i, _)| i)
-        .unwrap()
-}
-
-fn eq_value(a: Value, b: Value) -> bool {
-    println!("{}", json_type(&a));
-    println!("{}", json_type(&b));
-    return json_type(&a) == json_type(&b);
-}
-
-fn json_type_2<'a>(a: (&Value, &Value)) -> i32 {
-    return match a {
-        (Value::Object(p1), Value::Object(p2)) => 1,
-        (Value::Array(p1), Value::Array(p2)) => 1,
-        (Value::String(p1), Value::String(p2)) => 1,
-        (Value::Number(p1), Value::Number(p2)) => 1,
-        (Value::Bool(p1), Value::Bool(p2)) => 1,
-        (Value::Null, Value::Null) => 6,
-        _ => 7,
-    };
-}
-
-fn json_type(a: &Value) -> i32 {
-    return match a {
-        Value::Object(_) => 1,
-        Value::Array(_) => 2,
-        Value::String(_) => 3,
-        Value::Number(_) => 4,
-        Value::Bool(_) => 5,
-        Value::Null => 6,
-    };
-}
 
 #[cfg(test)]
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
-    #[test]
-    fn test_type() {
-        let t = Value::String("test".to_string());
-        let v = vec![Value::String("test2".to_string())];
-        let s = Value::Array(v);
-
-        assert_eq!(false, eq_value(t, s));
-    }
-
-    #[test]
-    fn test_diff() {
-        let r = r#"
-            {
-            "f1": "v2",
-            "f8": "v1",
-            "f3": false,
-            "f2": {
-                "f3": 123,
-                "f4": 456
-            }
-        }"#;
-        let r2 = r#"
-            {
-            "f1": "v2",
-            "f8": "v2",
-            "f3": true,
-            "f2": {
-                "f3": 456,
-                "f4": 456
-            }
-        }"#;
-
-        println!("{}", r2)
-    }
 
     #[test]
     fn test_diff_2() -> Result<()> {
@@ -470,14 +302,10 @@ mod tests {
         println!("{}", r);
         println!("{}", r2);
 
-        // diff(r, r2);
         let ja: Value = serde_json::from_str(r)?;
         let jb: Value = serde_json::from_str(r2)?;
-        let c = convert(&ja);
         let c2 = diff_rec(&ja, &jb);
 
-        // println!("{}", r2);
-        // println!("{:?}", c);
         println!("");
         println!("{:?}", c2);
         Ok(())
@@ -486,20 +314,28 @@ mod tests {
     #[test]
     fn test_diff_3() -> Result<()> {
         let r = r#"
-            [
-                {"item1": 123}, 
-                {"item2": 123}, 
-                {"item3": 345}, 
-                {"item4": 345} 
-            ]
+            {
+                "f0": "test",
+                "f1":
+                    [
+                        {"item1": 123}, 
+                        {"item2": 123}, 
+                        {"item3": 345}, 
+                        {"item4": 345} 
+                    ]
+            }
             "#;
         let r2 = r#"
-            [
-                {"item0": 123}, 
-                {"item2": 123}, 
-                {"item3": 123}, 
-                {"item5": 345}
-            ]
+            {
+                "f0": "test",
+                "f1":
+                    [
+                        {"item0": 123}, 
+                        {"item2": 123}, 
+                        {"item3": 123}, 
+                        {"item5": 345}
+                    ]
+            }
             "#;
 
         println!("{}", r);
