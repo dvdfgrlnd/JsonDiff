@@ -102,3 +102,14 @@ fn min_arg<T: std::cmp::Ord + std::clone::Clone>(v: &Vec<T>) -> usize {
         .map(|(i, _)| i)
         .unwrap()
 }
+
+#[cfg(test)]
+mod tests {
+    // Note this useful idiom: importing names from outer (for mod tests) scope.
+    use super::*;
+    #[test]
+    fn test_edit_distance() {
+        let res = edit_distance("2334".chars().collect(), "1223344".chars().collect());
+        println!("{:?}", res);
+    }
+}

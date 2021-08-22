@@ -1,18 +1,25 @@
 {
+    "f_1": null,
+    "f0": false,
     "f1": "v2",
     "f2": {
         "f3": 456,
         "f4": 456
-    }
+    },
+    "f3": [
+        {
+            "f1": 123,
+            "f2": {
+                "f3": 456
+            }
+        },
+        {
+            "f1": 789,
+            "f2": {
+                "f3": 987
+            }
+        }
+    ]
 }
 
-{
-    "f1": "v1",
-    "f2": {
-        "f3": 123,
-        "f4": 456
-    }
-}
-
-
-Left(Object({"f0": String("test", None)}, Some(Status { different_values: [ObjectValueDiff("f1", ObjectValueDiff(Array([(2, Object({"item2": Number(123.0, None)}, None))], Some(Status { different_values: [ArrayValueInFirst(0, Object({"item1": Number(123.0, None)}, None)), ArrayValueInSecond(1, Object({"item0": Number(123.0, None)}, None)), ArrayValueInFirst(3, Object({"item3": Number(345.0, None)}, None)), ArrayValueInFirst(4, Object({"item4": Number(345.0, None)}, None)), ArrayValueInSecond(5, Object({"item3": Number(123.0, None)}, None)), ArrayValueInSecond(6, Object({"item5": Number(345.0, None)}, None))] }))))] })))
+Object({"f1": String("v2", None)}, Some(Status { different_values: [ObjectValueDiff("f2", ObjectValueDiff(Object({"f3": Number(456.0, None)}, Some(Status { different_values: [ObjectValueDiff("f4", ObjectValueDiff(Object({}, Some(Status { different_values: [ObjectValueDiff("f0", ObjectValueDiff(Number(0.0, Some(Status { different_values: [Primitive((Number(123.0, None), Number(122.0, None)))] }))))] }))))] })))), ObjectValueDiff("f3", ObjectValueDiff(Null(Some(Status { different_values: [DifferentTypes((Object({"f5": String("v6", None)}, None), String("v6", None)))] })))), ObjectValueDiff("f8", ObjectValueDiff(String("", Some(Status { different_values: [Primitive((String("v0", None), String("v1", None)))] })))), ObjectValueDiff("f9", ObjectValueDiff(Bool(false, Some(Status { different_values: [Primitive((Bool(false, None), Bool(true, None)))] }))))] }))
