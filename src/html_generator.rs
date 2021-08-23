@@ -1,5 +1,6 @@
-use super::json_diff::JsonV;
+use super::json_diff::{ArrayDiff, JsonV, ObjectDiff};
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Debug)]
 enum Line {
@@ -11,10 +12,24 @@ enum Line {
     Start,
 }
 
+impl fmt::Display for Line {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let v = match self {
+            Line::Same(x) => x,
+            Line::DiffMissing(x) => x,
+            Line::DiffPresent(x) => x,
+            Line::Text(s) => s,
+            Line::Start => "",
+            Line::NewLine => "\n",
+        };
+        write!(f, "{}", v)
+    }
+}
+
 #[derive(Debug)]
 struct Node {
-    previous: Option<Box<Node>>,
     content: Line,
+    previous: Option<Box<Node>>,
 }
 
 pub fn generate(json: JsonV) -> String {
@@ -22,53 +37,193 @@ pub fn generate(json: JsonV) -> String {
         previous: None,
         content: Line::Start,
     };
-    // acc = generate_rec(json, acc);
+    acc = generate_rec(json, acc, None);
 
-    println!("{:?}", acc);
+    println!("{:?}\n", acc);
+
+    let sum = node_to_string(acc);
+    println!("{}", sum);
 
     // acc.join("\n")
     "".to_string()
 }
 
-fn generate_rec(json: JsonV, acc: Node) -> Node {
+fn node_to_string(acc: Node) -> String {
+    let mut n = Some(Box::new(acc));
+    let mut sum = "".to_string();
+    while n.is_some() {
+        if let Some(n2) = n {
+            sum = n2.content.to_string() + &sum;
+
+            n = n2.previous;
+        }
+    }
+    sum
+}
+
+fn generate_rec(json: JsonV, acc: Node, type_to_use: Option<fn(String) -> Line>) -> Node {
+    // println!("{:?}", json);
     match json {
         JsonV::Null(st) => {
-            Node { previous: Some(Box::new(acc)), content: Line::Same("null".to_string())}
+            if let Some(o) = st {
+                let n1 = generate_rec(o.0, acc, Some(|x| Line::DiffPresent(x)));
+                let n2 = Node {
+                    previous: Some(Box::new(n1)),
+                    content: Line::Text(", ".to_string()),
+                };
+                let n3 = generate_rec(o.1, n2, Some(|x| Line::DiffMissing(x)));
+                n3
+            } else {
+                Node {
+                    previous: Some(Box::new(acc)),
+                    content: type_to_use.unwrap_or(|x| Line::Same(x))("null".to_string()),
+                }
+            }
         }
         JsonV::String(s, st) => {
-            Node { previous: Some(Box::new(acc)), content: Line::Same(s)}
+            if let Some(o) = st {
+                let n1 = generate_rec(o.0, acc, Some(|x| Line::DiffPresent(x)));
+                let n2 = Node {
+                    previous: Some(Box::new(n1)),
+                    content: Line::Text(", ".to_string()),
+                };
+                let n3 = generate_rec(o.1, n2, Some(|x| Line::DiffMissing(x)));
+                n3
+            } else {
+                Node {
+                    previous: Some(Box::new(acc)),
+                    content: type_to_use.unwrap_or(|x| Line::Same(x))(format!("\"{}\"", s)),
+                }
+            }
         }
         JsonV::Bool(b, st) => {
-            let s2 = if b { "true" } else { "false" };
-            Node { previous: Some(Box::new(acc)), content: Line::Same(s2.to_string())}
+            let bool_string = if b { "true" } else { "false" };
+            if let Some(o) = st {
+                let n1 = generate_rec(o.0, acc, Some(|x| Line::DiffPresent(x)));
+                let n2 = Node {
+                    previous: Some(Box::new(n1)),
+                    content: Line::Text(", ".to_string()),
+                };
+                let n3 = generate_rec(o.1, n2, Some(|x| Line::DiffMissing(x)));
+                n3
+            } else {
+                Node {
+                    previous: Some(Box::new(acc)),
+                    content: type_to_use.unwrap_or(|x| Line::Same(x))(bool_string.to_string()),
+                }
+            }
         }
         JsonV::Number(n, st) => {
-            Node { previous: Some(Box::new(acc)), content: Line::Same(n.to_string())}
+            if let Some(o) = st {
+                let n1 = generate_rec(o.0, acc, Some(|x| Line::DiffPresent(x)));
+                let n2 = Node {
+                    previous: Some(Box::new(n1)),
+                    content: Line::Text(", ".to_string()),
+                };
+                let n3 = generate_rec(o.1, n2, Some(|x| Line::DiffMissing(x)));
+                n3
+            } else {
+                Node {
+                    previous: Some(Box::new(acc)),
+                    content: type_to_use.unwrap_or(|x| Line::Same(x))(n.to_string()),
+                }
+            }
         }
         JsonV::Array(v, st) => {
-            // acc.push_str("\n");
-            Node { previous: Some(Box::new(acc)), content: Line::Same("".to_string())}
+            let mut n = Node {
+                previous: Some(Box::new(acc)),
+                content: Line::Text("[".to_string()),
+            };
+            for (_, element) in v {
+                n = generate_rec(element, n, type_to_use);
+                n = Node {
+                    previous: Some(Box::new(n)),
+                    content: Line::Text(", ".to_string()),
+                };
+            }
+            for s in st {
+                match s {
+                    ArrayDiff::ArrayValueInFirst(_, el) => {
+                        n = generate_rec(el, n, Some(|x| Line::DiffPresent(x)));
+                        n = Node {
+                            previous: Some(Box::new(n)),
+                            content: Line::Text(", ".to_string()),
+                        };
+                    }
+                    ArrayDiff::ArrayValueInSecond(_, el) => {
+                        n = generate_rec(el, n, Some(|x| Line::DiffMissing(x)));
+                        n = Node {
+                            previous: Some(Box::new(n)),
+                            content: Line::Text(", ".to_string()),
+                        };
+                    }
+                }
+            }
+            Node {
+                previous: Some(Box::new(n)),
+                content: Line::Same("]".to_string()),
+            }
         }
         JsonV::Object(h, st) => {
-            // let t = acc.pop().unwrap_or("".to_string());
-            // acc.push(t + "{");
-            // for (k, v) in h {
-            //     acc.push(format!("\"{}\": ", k));
-            //     acc = generate_rec(v, acc);
-            // }
-            // acc.push("},".to_string());
-            Node { previous: Some(Box::new(acc)), content: Line::Same("".to_string())}
+            let mut n = Node {
+                previous: Some(Box::new(acc)),
+                content: Line::Text("{".to_string()),
+            };
+            for (k, v) in h {
+                n = Node {
+                    previous: Some(Box::new(n)),
+                    content: Line::Text(format!("{}: ", k)),
+                };
+                n = generate_rec(v, n, type_to_use);
+                n = Node {
+                    previous: Some(Box::new(n)),
+                    content: Line::Text(", ".to_string()),
+                };
+            }
+            for m in st {
+                match m {
+                    ObjectDiff::ObjectKeyMissing(s, v) => {
+                        n = Node {
+                            previous: Some(Box::new(n)),
+                            content: Line::Text(format!("{}: ", s)),
+                        };
+                        n = generate_rec(v, n, Some(|x| Line::DiffMissing(x)));
+                        n = Node {
+                            previous: Some(Box::new(n)),
+                            content: Line::Text(", ".to_string()),
+                        };
+                    }
+                    ObjectDiff::ObjectKeyPresent(s, v) => {
+                        n = Node {
+                            previous: Some(Box::new(n)),
+                            content: Line::Text(format!("{}: ", s)),
+                        };
+                        n = generate_rec(v, n, Some(|x| Line::DiffPresent(x)));
+                        n = Node {
+                            previous: Some(Box::new(n)),
+                            content: Line::Text(", ".to_string()),
+                        };
+                    }
+                    ObjectDiff::ObjectValueDiff(s, v) => {
+                        n = Node {
+                            previous: Some(Box::new(n)),
+                            content: Line::Text(format!("{}: ###", s)),
+                        };
+                        n = generate_rec(v, n, Some(|x| Line::DiffPresent(x)));
+                        n = Node {
+                            previous: Some(Box::new(n)),
+                            content: Line::Text("###, ".to_string()),
+                        };
+                    }
+                }
+            }
+            Node {
+                previous: Some(Box::new(n)),
+                content: Line::Text("}".to_string()),
+            }
         }
     }
 }
-
-// fn add_new(v: Vec<Line>, s: String) -> Vec<Line> {}
-
-// fn add_to_last(v: Vec<Line>, s: String) -> Vec<Line> {
-//     let t = v.pop();
-
-//     v.push(t);
-// }
 
 fn generate_line(mut acc: String, add: &str) -> String {
     acc.push_str(&format!("<p class=\"line\">{}<\\p>\n", add).to_string());
@@ -97,10 +252,40 @@ mod tests {
             "item2".to_string(),
             JsonV::String("value2".to_string(), None),
         );
-        h.insert("item3".to_string(), JsonV::Object(h2, Vec::new()));
+        h.insert(
+            "item3".to_string(),
+            JsonV::Object(
+                h2,
+                vec![ObjectDiff::ObjectValueDiff(
+                    "missing1".to_string(),
+                    JsonV::Bool(
+                        true,
+                        Some(Box::new((
+                            JsonV::Bool(false, None),
+                            JsonV::Bool(true, None),
+                        ))),
+                    ),
+                )],
+            ),
+        );
+        h.insert(
+            "item5".to_string(),
+            JsonV::Array(
+                vec![
+                    (0, JsonV::Number(10.0, None)),
+                    (1, JsonV::Number(20.0, None)),
+                ],
+                vec![
+                    ArrayDiff::ArrayValueInFirst(0, JsonV::String("arr".to_string(), None))
+                    ],
+            ),
+        );
 
         let json = JsonV::Object(h, Vec::new());
+        println!("{:?}\n", json);
         let res = generate(json);
+        println!("{}\n", res);
+
         println!("{}", res);
     }
 }
