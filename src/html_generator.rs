@@ -295,30 +295,50 @@ fn generate_rec(
     }
 }
 
+enum L2 {
+    Text(String),
+    Newline,
+}
+
 fn to_html(n: Node) -> String {
     let mut n = Some(Box::new(n));
-    let mut sum: Vec<String> = Vec::new();
+    let mut sum: Vec<Vec<String>> = Vec::new();
+    let mut curr: Vec<String> = Vec::new();
     while n.is_some() {
         if let Some(n2) = n {
             if let Some(x) = generate_line(n2.content) {
-                sum.push(x);
+                match x {
+                    L2::Text(t) => curr.push(t),
+                    L2::Newline => {
+                        curr.reverse();
+                        sum.push(curr);
+                        curr = Vec::new();
+                    }
+                }
             }
 
             n = n2.previous;
         }
     }
+    if curr.len() > 0 {
+        sum.push(curr);
+    }
     sum.reverse();
-    sum.join("")
+    let mut r = "".to_string();
+    for v in sum {
+        r.push_str(&format!("<div>{}</div>", v.join("")));
+    }
+    format!("<div style=\"display: flex; flex-direction: column;\">{}</div>", r)
 }
 
-fn generate_line(n: Line) -> Option<String> {
+fn generate_line(n: Line) -> Option<L2> {
     match n {
-        Line::DiffMissing(indent, x) => Some(missing(indent, x)),
-        Line::DiffPresent(indent, x) => Some(present(indent, x)),
-        Line::NewLine => Some("<br>".to_string()),
-        Line::Same(indent, x) => Some(same(indent, x)),
+        Line::DiffMissing(indent, x) => Some(L2::Text(missing(indent, x))),
+        Line::DiffPresent(indent, x) => Some(L2::Text(present(indent, x))),
+        Line::NewLine => Some(L2::Newline),
+        Line::Same(indent, x) => Some(L2::Text(same(indent, x))),
         Line::Start => None,
-        Line::Text(indent, s) => Some(same(indent, s)),
+        Line::Text(indent, s) => Some(L2::Text(same(indent, s))),
     }
 }
 
