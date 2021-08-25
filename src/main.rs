@@ -37,7 +37,7 @@ fn main() -> Result<()> {
     }"#;
     let json = json_diff::diff(r, r2)?;
 
-    println!("{:?}", json);
+    // println!("{:?}", json);
     let html_str = html_generator::generate(json);
     println!("{}", html_str);
 

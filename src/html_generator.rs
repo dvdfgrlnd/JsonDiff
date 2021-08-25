@@ -40,15 +40,15 @@ pub fn generate(json: JsonV) -> String {
     };
     acc = generate_rec(0, json, acc, None);
 
-    println!("{:?}\n", acc);
+    // println!("{:?}\n", acc);
 
     let sum = node_to_string(acc.clone());
     println!("{}", sum);
 
-    to_html(acc);
+    let html = to_html(acc);
+    // println!("{}", html);
 
-    // acc.join("\n")
-    "".to_string()
+    html
 }
 
 fn node_to_string(acc: Node) -> String {
@@ -267,6 +267,10 @@ fn generate_rec(
                             previous: Some(Box::new(n)),
                             content: Line::Text(indent + 1, format!("{}: ###", s)),
                         };
+                        n = Node {
+                            previous: Some(Box::new(n)),
+                            content: Line::NewLine,
+                        };
                         n = generate_rec(indent + 1, v, n, Some(|i, x| Line::DiffPresent(i, x)));
                         n = Node {
                             previous: Some(Box::new(n)),
@@ -291,7 +295,7 @@ fn generate_rec(
     }
 }
 
-fn to_html(n: Node) {
+fn to_html(n: Node) -> String {
     let mut n = Some(Box::new(n));
     let mut sum: Vec<String> = Vec::new();
     while n.is_some() {
@@ -304,7 +308,7 @@ fn to_html(n: Node) {
         }
     }
     sum.reverse();
-    println!("{}", sum.join(""));
+    sum.join("")
 }
 
 fn generate_line(n: Line) -> Option<String> {
@@ -320,7 +324,7 @@ fn generate_line(n: Line) -> Option<String> {
 
 fn same(indent: usize, s: String) -> String {
     format!(
-        "<span class=\"same\" style=\"margin-left:{}px\">{}</span>\n",
+        "<span class=\"same\" style=\"margin-left:{}px;color:black\">{}</span>\n",
         (30 * indent).to_string(),
         s
     )
@@ -329,7 +333,7 @@ fn same(indent: usize, s: String) -> String {
 
 fn present(indent: usize, s: String) -> String {
     format!(
-        "<span class=\"present\" style=\"margin-left:{}px\">+++{}+++</span>\n",
+        "<span class=\"present\" style=\"margin-left:{}px;color:green\">+++{}+++</span>\n",
         (30 * indent).to_string(),
         s
     )
@@ -338,7 +342,7 @@ fn present(indent: usize, s: String) -> String {
 
 fn missing(indent: usize, s: String) -> String {
     format!(
-        "<span class=\"missing\" style=\"margin-left:{}px\">---{}---</span>\n",
+        "<span class=\"missing\" style=\"margin-left:{}px;color:red\">---{}---</span>\n",
         (30 * indent).to_string(),
         s
     )
