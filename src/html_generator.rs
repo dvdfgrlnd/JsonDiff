@@ -15,15 +15,15 @@ enum Line {
 
 impl fmt::Display for Line {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let v = match self {
-            Line::Same(indent, x) => x,
-            Line::DiffMissing(indent, x) => x,
-            Line::DiffPresent(indent, x) => x,
-            Line::Text(indent, s) => s,
+        let s = match self {
+            Line::Same(_, x) => x,
+            Line::DiffMissing(_, x) => x,
+            Line::DiffPresent(_, x) => x,
+            Line::Text(_, s) => s,
             Line::Start => "",
             Line::NewLine => "\n",
         };
-        write!(f, "{}", v)
+        write!(f, "{}", s)
     }
 }
 
@@ -33,61 +33,66 @@ struct Node {
     previous: Option<Box<Node>>,
 }
 
+impl fmt::Display for Node {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut curr_node = Some(Box::new(self.clone()));
+        let mut agg = "".to_string();
+        while curr_node.is_some() {
+            if let Some(node) = curr_node {
+                agg = node.content.to_string() + &agg;
+
+                curr_node = node.previous;
+            }
+        }
+        write!(f, "{}", agg)
+    }
+}
+
 pub fn generate(json: JsonV) -> String {
-    let mut acc = Node {
+    let start_node = Node {
         previous: None,
         content: Line::Start,
     };
-    acc = generate_rec(0, json, acc, None);
+    let last_node = generate_rec(0, json, start_node, None);
 
-    // println!("{:?}\n", acc);
-
-    let sum = node_to_string(acc.clone());
-    println!("{}", sum);
-
-    let html = to_html(acc);
-    // println!("{}", html);
+    let html = to_html(last_node);
 
     html
 }
 
-fn node_to_string(acc: Node) -> String {
-    let mut n = Some(Box::new(acc));
-    let mut sum = "".to_string();
-    while n.is_some() {
-        if let Some(n2) = n {
-            sum = n2.content.to_string() + &sum;
-
-            n = n2.previous;
-        }
+fn text_node(previous: Node, text: String, indent: usize) -> Node {
+    Node {
+        previous: Some(Box::new(previous)),
+        content: Line::Text(indent, text),
     }
-    sum
+}
+
+fn newline_node(previous: Node) -> Node {
+    Node {
+        previous: Some(Box::new(previous)),
+        content: Line::NewLine,
+    }
 }
 
 fn generate_rec(
     indent: usize,
     json: JsonV,
-    acc: Node,
+    last_node: Node,
     type_to_use: Option<fn(usize, String) -> Line>,
 ) -> Node {
-    // println!("{:?}", json);
     match json {
         JsonV::Null(st) => {
             if let Some(o) = st {
-                let n1 = generate_rec(indent, o.0, acc, Some(|i, x| Line::DiffPresent(i, x)));
-                let mut n2 = Node {
-                    previous: Some(Box::new(n1)),
-                    content: Line::Text(indent, ", ".to_string()),
-                };
-                n2 = Node {
-                    previous: Some(Box::new(n2)),
-                    content: Line::NewLine,
-                };
-                let n3 = generate_rec(indent, o.1, n2, Some(|i, x| Line::DiffMissing(i, x)));
-                n3
+                let mut curr_node =
+                    generate_rec(indent, o.0, last_node, Some(|i, x| Line::DiffPresent(i, x)));
+                curr_node = text_node(curr_node, ", ".to_string(), indent);
+                curr_node = newline_node(curr_node);
+                curr_node =
+                    generate_rec(indent, o.1, curr_node, Some(|i, x| Line::DiffMissing(i, x)));
+                curr_node
             } else {
                 Node {
-                    previous: Some(Box::new(acc)),
+                    previous: Some(Box::new(last_node)),
                     content: type_to_use.unwrap_or(|i, x| Line::Same(i, x))(
                         indent,
                         "null".to_string(),
@@ -97,16 +102,15 @@ fn generate_rec(
         }
         JsonV::String(s, st) => {
             if let Some(o) = st {
-                let n1 = generate_rec(indent, o.0, acc, Some(|i, x| Line::DiffPresent(i, x)));
-                let n2 = Node {
-                    previous: Some(Box::new(n1)),
-                    content: Line::Text(indent, ", ".to_string()),
-                };
-                let n3 = generate_rec(indent, o.1, n2, Some(|i, x| Line::DiffMissing(i, x)));
-                n3
+                let mut curr_node =
+                    generate_rec(indent, o.0, last_node, Some(|i, x| Line::DiffPresent(i, x)));
+                curr_node = text_node(curr_node, ", ".to_string(), indent);
+                curr_node =
+                    generate_rec(indent, o.1, curr_node, Some(|i, x| Line::DiffMissing(i, x)));
+                curr_node
             } else {
                 Node {
-                    previous: Some(Box::new(acc)),
+                    previous: Some(Box::new(last_node)),
                     content: type_to_use.unwrap_or(|i, x| Line::Same(i, x))(
                         indent,
                         format!("\"{}\"", s),
@@ -117,16 +121,15 @@ fn generate_rec(
         JsonV::Bool(b, st) => {
             let bool_string = if b { "true" } else { "false" };
             if let Some(o) = st {
-                let n1 = generate_rec(indent, o.0, acc, Some(|i, x| Line::DiffPresent(i, x)));
-                let n2 = Node {
-                    previous: Some(Box::new(n1)),
-                    content: Line::Text(indent, ", ".to_string()),
-                };
-                let n3 = generate_rec(indent, o.1, n2, Some(|i, x| Line::DiffMissing(i, x)));
-                n3
+                let mut curr_node =
+                    generate_rec(indent, o.0, last_node, Some(|i, x| Line::DiffPresent(i, x)));
+                curr_node = text_node(curr_node, ", ".to_string(), indent);
+                curr_node =
+                    generate_rec(indent, o.1, curr_node, Some(|i, x| Line::DiffMissing(i, x)));
+                curr_node
             } else {
                 Node {
-                    previous: Some(Box::new(acc)),
+                    previous: Some(Box::new(last_node)),
                     content: type_to_use.unwrap_or(|i, x| Line::Same(i, x))(
                         indent,
                         bool_string.to_string(),
@@ -136,169 +139,112 @@ fn generate_rec(
         }
         JsonV::Number(n, st) => {
             if let Some(o) = st {
-                let n1 = generate_rec(indent, o.0, acc, Some(|i, x| Line::DiffPresent(i, x)));
-                let n2 = Node {
-                    previous: Some(Box::new(n1)),
-                    content: Line::Text(indent, ", ".to_string()),
-                };
-                let n3 = generate_rec(indent, o.1, n2, Some(|i, x| Line::DiffMissing(i, x)));
-                n3
+                let mut curr_node =
+                    generate_rec(indent, o.0, last_node, Some(|i, x| Line::DiffPresent(i, x)));
+                curr_node = text_node(curr_node, ", ".to_string(), indent);
+                curr_node =
+                    generate_rec(indent, o.1, curr_node, Some(|i, x| Line::DiffMissing(i, x)));
+                curr_node
             } else {
                 Node {
-                    previous: Some(Box::new(acc)),
+                    previous: Some(Box::new(last_node)),
                     content: type_to_use.unwrap_or(|i, x| Line::Same(i, x))(indent, n.to_string()),
                 }
             }
         }
         JsonV::Array(v, st) => {
-            let mut n = Node {
-                previous: Some(Box::new(acc)),
-                content: Line::Text(indent, "[".to_string()),
-            };
-            n = Node {
-                previous: Some(Box::new(n)),
+            let mut curr_node = text_node(last_node, "[".to_string(), indent);
+            curr_node = Node {
+                previous: Some(Box::new(curr_node)),
                 content: Line::NewLine,
             };
             for (_, element) in v {
-                n = generate_rec(indent + 1, element, n, type_to_use);
-                n = Node {
-                    previous: Some(Box::new(n)),
-                    content: Line::Text(indent + 1, ", ".to_string()),
-                };
-                n = Node {
-                    previous: Some(Box::new(n)),
-                    content: Line::NewLine,
-                };
+                curr_node = generate_rec(indent + 1, element, curr_node, type_to_use);
+                curr_node = text_node(curr_node, ", ".to_string(), indent);
+                curr_node = newline_node(curr_node);
             }
             for s in st {
                 match s {
-                    ArrayDiff::ArrayValueInFirst(_, el) => {
-                        n = generate_rec(indent + 1, el, n, Some(|i, x| Line::DiffPresent(i, x)));
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::Text(indent + 1, ", ".to_string()),
-                        };
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::NewLine,
-                        };
+                    ArrayDiff::ArrayValueInFirst(_, element) => {
+                        curr_node = generate_rec(
+                            indent + 1,
+                            element,
+                            curr_node,
+                            Some(|i, x| Line::DiffPresent(i, x)),
+                        );
+                        curr_node = text_node(curr_node, ", ".to_string(), indent);
+                        curr_node = newline_node(curr_node);
                     }
-                    ArrayDiff::ArrayValueInSecond(_, el) => {
-                        n = generate_rec(indent + 1, el, n, Some(|i, x| Line::DiffMissing(i, x)));
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::Text(indent + 1, ", ".to_string()),
-                        };
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::NewLine,
-                        };
+                    ArrayDiff::ArrayValueInSecond(_, element) => {
+                        curr_node = generate_rec(
+                            indent + 1,
+                            element,
+                            curr_node,
+                            Some(|i, x| Line::DiffMissing(i, x)),
+                        );
+                        curr_node = text_node(curr_node, ", ".to_string(), indent);
+                        curr_node = newline_node(curr_node);
                     }
                 }
-                n = Node {
-                    previous: Some(Box::new(n)),
+                curr_node = Node {
+                    previous: Some(Box::new(curr_node)),
                     content: Line::NewLine,
                 };
             }
 
-            n = Node {
-                previous: Some(Box::new(n)),
-                content: Line::Same(indent, "]".to_string()),
-            };
-            Node {
-                previous: Some(Box::new(n)),
-                content: Line::NewLine,
-            }
+            curr_node = text_node(curr_node, "]".to_string(), indent);
+            newline_node(curr_node)
         }
         JsonV::Object(h, st) => {
-            let mut n = Node {
-                previous: Some(Box::new(acc)),
-                content: Line::Text(indent, "{".to_string()),
-            };
-            n = Node {
-                previous: Some(Box::new(n)),
-                content: Line::NewLine,
-            };
+            let mut curr_node = text_node(last_node, "{".to_string(), indent);
+            curr_node = newline_node(curr_node);
             for (k, v) in h {
-                n = Node {
-                    previous: Some(Box::new(n)),
-                    content: Line::Text(indent + 1, format!("{}: ", k)),
-                };
-                n = generate_rec(indent + 1, v, n, type_to_use);
-                n = Node {
-                    previous: Some(Box::new(n)),
-                    content: Line::Text(indent + 1, ", ".to_string()),
-                };
-                n = Node {
-                    previous: Some(Box::new(n)),
-                    content: Line::NewLine,
-                };
+                curr_node = text_node(curr_node, format!("{}: ", k), indent + 1);
+                curr_node = generate_rec(indent + 1, v, curr_node, type_to_use);
+                curr_node = text_node(curr_node, ", ".to_string(), indent + 1);
+                curr_node = newline_node(curr_node);
             }
             for m in st {
                 match m {
                     ObjectDiff::ObjectKeyMissing(s, v) => {
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::Text(indent + 1, format!("{}: ", s)),
-                        };
-                        n = generate_rec(indent + 1, v, n, Some(|i, x| Line::DiffMissing(i, x)));
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::Text(indent + 1, ", ".to_string()),
-                        };
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::NewLine,
-                        };
+                        curr_node = text_node(curr_node, format!("{}: ", s), indent + 1);
+                        curr_node = generate_rec(
+                            indent + 1,
+                            v,
+                            curr_node,
+                            Some(|i, x| Line::DiffMissing(i, x)),
+                        );
+                        curr_node = text_node(curr_node, ", ".to_string(), indent + 1);
+                        curr_node = newline_node(curr_node);
                     }
                     ObjectDiff::ObjectKeyPresent(s, v) => {
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::Text(indent + 1, format!("{}: ", s)),
-                        };
-                        n = generate_rec(indent + 1, v, n, Some(|i, x| Line::DiffPresent(i, x)));
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::Text(indent + 1, ", ".to_string()),
-                        };
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::NewLine,
-                        };
+                        curr_node = text_node(curr_node, format!("{}: ", s), indent + 1);
+                        curr_node = generate_rec(
+                            indent + 1,
+                            v,
+                            curr_node,
+                            Some(|i, x| Line::DiffPresent(i, x)),
+                        );
+                        curr_node = text_node(curr_node, ", ".to_string(), indent + 1);
+                        curr_node = newline_node(curr_node);
                     }
                     ObjectDiff::ObjectValueDiff(s, v) => {
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::Text(indent + 1, format!("{}: ###", s)),
-                        };
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::NewLine,
-                        };
-                        n = generate_rec(indent + 1, v, n, Some(|i, x| Line::DiffPresent(i, x)));
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::NewLine,
-                        };
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::Text(indent + 1, "###, ".to_string()),
-                        };
-                        n = Node {
-                            previous: Some(Box::new(n)),
-                            content: Line::NewLine,
-                        };
+                        curr_node = text_node(curr_node, format!("{}: ###", s), indent + 1);
+                        curr_node = newline_node(curr_node);
+                        curr_node = generate_rec(
+                            indent + 1,
+                            v,
+                            curr_node,
+                            Some(|i, x| Line::DiffPresent(i, x)),
+                        );
+                        curr_node = newline_node(curr_node);
+                        curr_node = text_node(curr_node, "###, ".to_string(), indent + 1);
+                        curr_node = newline_node(curr_node);
                     }
                 }
             }
-            n = Node {
-                previous: Some(Box::new(n)),
-                content: Line::Text(indent, "}".to_string()),
-            };
-            Node {
-                previous: Some(Box::new(n)),
-                content: Line::NewLine,
-            }
+            curr_node = text_node(curr_node, "}".to_string(), indent);
+            newline_node(curr_node)
         }
     }
 }
@@ -308,68 +254,70 @@ enum L2 {
     Newline,
 }
 
-fn to_html(n: Node) -> String {
-    let mut n = Some(Box::new(n));
-    let mut sum: Vec<Vec<(usize, String)>> = Vec::new();
-    let mut curr: Vec<(usize, String)> = Vec::new();
-    while n.is_some() {
-        if let Some(n2) = n {
-            if let Some(x) = generate_line(n2.content) {
-                match x.1 {
-                    L2::Text(t) => curr.push((x.0, t)),
+fn to_html(inp_node: Node) -> String {
+    let mut maybe_node = Some(Box::new(inp_node));
+    let mut lines: Vec<Vec<(usize, String)>> = Vec::new();
+    let mut current_line: Vec<(usize, String)> = Vec::new();
+    while maybe_node.is_some() {
+        if let Some(node) = maybe_node {
+            if let Some((indent, text_element)) = generate_line(node.content) {
+                match text_element {
+                    L2::Text(text) => current_line.push((indent, text)),
                     L2::Newline => {
-                        if curr.len() > 0 {
-                            curr.reverse();
-                            sum.push(curr);
+                        if current_line.len() > 0 {
+                            // Since inp_node start from the bottom-left the line should be flipped
+                            current_line.reverse();
+                            lines.push(current_line);
+                            current_line = Vec::new();
                         }
-                        curr = Vec::new();
                     }
                 }
             }
 
-            n = n2.previous;
+            maybe_node = node.previous;
         }
     }
-    if curr.len() > 0 {
-        sum.push(curr);
+    if current_line.len() > 0 {
+        lines.push(current_line);
     }
-    sum.reverse();
-    let mut r = "".to_string();
-    for v in sum {
-        let indent = v.iter().map(|x| x.0).take(1).collect::<Vec<usize>>().pop();
-        if let Some(i) = indent {
-            let v2 = v.iter().map(|x| x.1.clone()).collect::<Vec<_>>().join("");
-            r.push_str(&format!(
+    // Since inp_node start from the bottom the lines should be reversed 
+    lines.reverse();
+    let mut output_html = "".to_string();
+    for single_line in lines {
+        let maybe_indent = single_line.iter().map(|x| x.0).take(1).collect::<Vec<usize>>().pop();
+        if let Some(indent) = maybe_indent {
+            let concatenated_line_elements = single_line.iter().map(|x| x.1.clone()).collect::<Vec<_>>().join("");
+            output_html.push_str(&format!(
                 "<div style=\"margin-left:{}px\">{}</div>",
-                (30 * i).to_string(),
-                v2
+                (30 * indent).to_string(),
+                concatenated_line_elements
             ));
         } else {
-            panic!("No indent found!\n {:?}", v);
+            panic!("No indent found!\n {:?}", single_line);
         }
     }
     format!(
         "<div style=\"display: flex; flex-direction: column;\">{}</div>",
-        r
+        output_html
     )
 }
 
-fn generate_line(n: Line) -> Option<(usize, L2)> {
-    match n {
-        Line::DiffMissing(indent, x) => Some((indent, L2::Text(missing(indent, x)))),
-        Line::DiffPresent(indent, x) => Some((indent, L2::Text(present(indent, x)))),
+fn generate_line(line: Line) -> Option<(usize, L2)> {
+    match line {
+        Line::DiffMissing(indent, text) => Some((indent, L2::Text(missing(text)))),
+        Line::DiffPresent(indent, text) => Some((indent, L2::Text(present(text)))),
         Line::NewLine => Some((0, L2::Newline)),
-        Line::Same(indent, x) => Some((indent, L2::Text(same(indent, x)))),
+        Line::Same(indent, text) => Some((indent, L2::Text(same(text)))),
         Line::Start => None,
-        Line::Text(indent, s) => Some((indent, L2::Text(same(indent, s)))),
+        Line::Text(indent, text) => Some((indent, L2::Text(same(text)))),
     }
 }
 
-fn same(_: usize, s: String) -> String {
+fn same(s: String) -> String {
     format!("<span class=\"same\" style=\"color:black\">{}</span>\n", s).to_string()
 }
 
-fn present(_: usize, s: String) -> String {
+fn present(s: String) -> String {
     format!(
         "<span class=\"present\" style=\"color:green\">+++{}+++</span>\n",
         s
@@ -377,7 +325,7 @@ fn present(_: usize, s: String) -> String {
     .to_string()
 }
 
-fn missing(_: usize, s: String) -> String {
+fn missing(s: String) -> String {
     format!(
         "<span class=\"missing\" style=\"color:red\">---{}---</span>\n",
         s
@@ -391,25 +339,25 @@ mod tests {
     use super::*;
     #[test]
     fn test_generate_html() {
-        let mut h: HashMap<String, JsonV> = HashMap::new();
-        let mut h2: HashMap<String, JsonV> = HashMap::new();
-        h2.insert(
+        let mut map1: HashMap<String, JsonV> = HashMap::new();
+        let mut map2: HashMap<String, JsonV> = HashMap::new();
+        map2.insert(
             "item5".to_string(),
             JsonV::String("value5".to_string(), None),
         );
 
-        h.insert(
+        map1.insert(
             "item1".to_string(),
             JsonV::String("value1".to_string(), None),
         );
-        h.insert(
+        map1.insert(
             "item2".to_string(),
             JsonV::String("value2".to_string(), None),
         );
-        h.insert(
+        map1.insert(
             "item3".to_string(),
             JsonV::Object(
-                h2,
+                map2,
                 vec![ObjectDiff::ObjectValueDiff(
                     "missing1".to_string(),
                     JsonV::Bool(
@@ -422,7 +370,7 @@ mod tests {
                 )],
             ),
         );
-        h.insert(
+        map1.insert(
             "item5".to_string(),
             JsonV::Array(
                 vec![
@@ -436,10 +384,9 @@ mod tests {
             ),
         );
 
-        let json = JsonV::Object(h, Vec::new());
+        let json = JsonV::Object(map1, Vec::new());
         println!("{:?}\n", json);
         let res = generate(json);
-        println!("{}\n", res);
 
         println!("{}", res);
     }
