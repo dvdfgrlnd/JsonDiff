@@ -16,7 +16,6 @@ pub enum JsonV {
 
 pub type JsonVPair = (JsonV, JsonV);
 
-
 #[derive(Clone, Debug)]
 pub enum ArrayDiff {
     ArrayValueInSecond(usize, JsonV),
@@ -30,33 +29,24 @@ pub enum ObjectDiff {
     ObjectValueDiff(String, JsonV),
 }
 
-
 pub fn diff(a: &str, b: &str) -> Result<JsonV> {
-    let ja: Value = serde_json::from_str(a)?;
-    let jb: Value = serde_json::from_str(b)?;
+    let a_as_json: Value = serde_json::from_str(a)?;
+    let b_as_json: Value = serde_json::from_str(b)?;
 
-    let json = diff_rec(&ja, &jb);
+    let json = diff_rec(&a_as_json, &b_as_json);
 
     Ok(json)
 }
 
-fn diff_rec(a0: &Value, b0: &Value) -> JsonV {
-    match (a0, b0) {
+fn diff_rec(arg1: &Value, arg2: &Value) -> JsonV {
+    match (arg1, arg2) {
         // Check keys first then values
         (Value::Object(a_obj), Value::Object(b_obj)) => {
+            let a_keys: Vec<_> = a_obj.keys().map(|x| x.to_string()).collect::<Vec<String>>();
+            let b_keys: Vec<_> = b_obj.keys().map(|x| x.to_string()).collect::<Vec<String>>();
             // Find fields not in the other and vice versa
-            let a_keys: Vec<_> = a_obj
-                .keys()
-                .map(|x| x.to_string())
-                .collect::<Vec<String>>()
-                .clone();
-            let b_keys: Vec<_> = b_obj
-                .keys()
-                .map(|x| x.to_string())
-                .collect::<Vec<String>>()
-                .clone();
-            let fields_in_b_not_a = a_intersection_complement_b(b_keys.clone(), a_keys.clone());
             let fields_in_a_not_b = a_intersection_complement_b(a_keys.clone(), b_keys.clone());
+            let fields_in_b_not_a = a_intersection_complement_b(b_keys.clone(), a_keys.clone());
 
             // Find fields where the values differ in the two structures
 
@@ -65,11 +55,8 @@ fn diff_rec(a0: &Value, b0: &Value) -> JsonV {
             for key in union(a_keys.clone(), b_keys.clone()) {
                 if let (Some(a_value), Some(b_value)) = (a_obj.get(&key), b_obj.get(&key)) {
                     let json_element = diff_rec(a_value, b_value);
-                    if get_status(&json_element) {
-                        differences.push(ObjectDiff::ObjectValueDiff(
-                            key,
-                            json_element,
-                        ));
+                    if has_differences(&json_element) {
+                        differences.push(ObjectDiff::ObjectValueDiff(key, json_element));
                     } else {
                         similarities.insert(key.to_string(), json_element);
                     }
@@ -78,7 +65,7 @@ fn diff_rec(a0: &Value, b0: &Value) -> JsonV {
 
             // let df = differences.clone();
 
-            let status = if fields_in_a_not_b.is_empty()
+            let all_differences = if fields_in_a_not_b.is_empty()
                 && fields_in_b_not_a.is_empty()
                 && differences.is_empty()
             {
@@ -86,99 +73,85 @@ fn diff_rec(a0: &Value, b0: &Value) -> JsonV {
                 Vec::new()
             } else {
                 // Not the same
-                let f1 = |x: String| {
-                    ObjectDiff::ObjectKeyPresent(x.to_string(), convert(a_obj.get(&x).unwrap()))
-                };
-                let f2 = |x: String| {
-                    ObjectDiff::ObjectKeyMissing(x.to_string(), convert(b_obj.get(&x).unwrap()))
-                };
-                let mut v1: Vec<ObjectDiff> = fields_in_a_not_b
+                let entries_present_in_a: Vec<ObjectDiff> = fields_in_a_not_b
                     .iter()
-                    .map(|y| f1(y.to_string()))
+                    .map(|x| {
+                        ObjectDiff::ObjectKeyPresent(x.to_string(), convert(a_obj.get(x).unwrap()))
+                    })
                     .collect();
-                let v2: Vec<ObjectDiff> = fields_in_b_not_a
+                let entries_missing_in_a: Vec<ObjectDiff> = fields_in_b_not_a
                     .iter()
-                    .map(|y| f2(y.to_string()))
+                    .map(|x| {
+                        ObjectDiff::ObjectKeyMissing(x.to_string(), convert(b_obj.get(x).unwrap()))
+                    })
                     .collect();
 
-                v1.extend(v2);
-                v1.extend(differences);
-
-                v1
+                [entries_present_in_a, entries_missing_in_a, differences].concat()
             };
-            let res = JsonV::Object(similarities, status);
-
-            res
+            JsonV::Object(similarities, all_differences)
         }
         // Check equal number of elements and element equality
         (Value::Array(arr1), Value::Array(arr2)) => {
-            let arr1_values: Vec<String> = arr1.iter().map(|x| x.to_string()).collect();
-            let arr2_values: Vec<String> = arr2.iter().map(|x| x.to_string()).collect();
+            let arr1_elements_serialized: Vec<String> =
+                arr1.iter().map(|x| x.to_string()).collect();
+            let arr2_elements_serialized: Vec<String> =
+                arr2.iter().map(|x| x.to_string()).collect();
 
-            let mut res = edit_distance(arr1_values, arr2_values);
+            let edit_types = edit_distance(arr1_elements_serialized, arr2_elements_serialized);
             let mut same: Vec<(usize, JsonV)> = Vec::new();
             let mut diffs: Vec<ArrayDiff> = Vec::new();
-            let mut i: usize = 0;
-            for x in res {
-                match x {
-                    EditType::Insert(y) => {
-                        diffs.push(ArrayDiff::ArrayValueInSecond(i, convert(&arr2[y])))
+            for (i, edit_type) in edit_types.iter().enumerate() {
+                match edit_type {
+                    EditType::Insert(index) => {
+                        diffs.push(ArrayDiff::ArrayValueInSecond(i, convert(&arr2[*index])))
                     }
-                    EditType::Delete(y) => {
-                        diffs.push(ArrayDiff::ArrayValueInFirst(i, convert(&arr1[y])))
+                    EditType::Delete(index) => {
+                        diffs.push(ArrayDiff::ArrayValueInFirst(i, convert(&arr1[*index])))
                     }
-                    EditType::Substitute(y, _, is_same) if is_same => {
-                        same.push((i, convert(&arr1[y])))
+                    EditType::Substitute(index, _, is_same) if *is_same => {
+                        same.push((i, convert(&arr1[*index])))
                     }
-                    EditType::Substitute(y, z, _) => {
-                        diffs.push(ArrayDiff::ArrayValueInSecond(i, convert(&arr2[z])));
-                        diffs.push(ArrayDiff::ArrayValueInFirst(i, convert(&arr1[y])));
+                    EditType::Substitute(index_arg1, index_arg2, _) => {
+                        diffs.push(ArrayDiff::ArrayValueInSecond(
+                            i,
+                            convert(&arr2[*index_arg2]),
+                        ));
+                        diffs.push(ArrayDiff::ArrayValueInFirst(i, convert(&arr1[*index_arg1])));
                     }
                     EditType::Unknown => (),
                 }
-                i += 1;
             }
-            let st = if diffs.is_empty() {
-                Vec::new()
-            } else {
-                diffs
-            };
 
-            JsonV::Array(same, st)
+            JsonV::Array(same, diffs)
         }
-        (Value::String(p1), Value::String(p2)) => {
-            let k = if p1 == p2 {
-                JsonV::String(p1.to_string(), None)
+        (Value::String(s1), Value::String(s2)) => {
+            let k = if s1 == s2 {
+                JsonV::String(s1.to_string(), None)
             } else {
-                let v1 = Box::new((convert(a0), convert(b0)));
+                let v1 = Box::new((convert(arg1), convert(arg2)));
                 JsonV::String("".to_string(), Some(v1))
             };
             k
         }
-        (Value::Number(p1), Value::Number(p2)) => {
-            // println!("6. {:?} {:?}", p1, p2);
-            let k = if cmp_option(p1.as_f64(), p2.as_f64()) {
-                JsonV::Number(p1.as_f64().unwrap(), None)
+        (Value::Number(n1), Value::Number(n2)) => {
+            if cmp_option(n1.as_f64(), n2.as_f64()) {
+                JsonV::Number(n1.as_f64().unwrap(), None)
             } else {
-                // println!("8. {:?} {:?}", p1, p2);
-                let v1 = Box::new((convert(a0), convert(b0)));
-                JsonV::Number(0.0, Some(v1))
-            };
-            k
+                JsonV::Number(0.0, Some(Box::new((convert(arg1), convert(arg2)))))
+            }
         }
-        (Value::Bool(p1), Value::Bool(p2)) => {
-            let k = if p1 == p2 {
-                JsonV::Bool(*p1, None)
+        (Value::Bool(b1), Value::Bool(b2)) => {
+            if b1 == b2 {
+                JsonV::Bool(*b1, None)
             } else {
-                let v1 = Box::new((JsonV::Bool(*p1, None), JsonV::Bool(*p2, None)));
-                JsonV::Bool(false, Some(v1))
-            };
-            k
+                JsonV::Bool(
+                    false,
+                    Some(Box::new((JsonV::Bool(*b1, None), JsonV::Bool(*b2, None)))),
+                )
+            }
         }
         (Value::Null, Value::Null) => JsonV::Null(None),
-        _ => {
-            JsonV::Null(Some(Box::new((convert(a0), convert(b0)))))
-        }
+        _ => JsonV::Null(Some(Box::new((convert(arg1), convert(arg2))))),
     }
 }
 
@@ -193,35 +166,29 @@ fn cmp_option<T: std::string::ToString>(a: Option<T>, b: Option<T>) -> bool {
     }
 }
 
-fn convert(a: &Value) -> JsonV {
-    match a {
+fn convert(v: &Value) -> JsonV {
+    match v {
         Value::Null => JsonV::Null(None),
         Value::Bool(b) => JsonV::Bool(*b, None),
-        Value::Number(b) => {
-            if let Some(n) = b.as_f64() {
-                JsonV::Number(n, None)
-            } else {
-                JsonV::Number(0.0, None)
-            }
-        }
-        Value::String(b) => JsonV::String(b.to_string(), None),
-        Value::Object(b) => {
+        Value::Number(n) => JsonV::Number(n.as_f64().unwrap_or(0.0), None),
+        Value::String(s) => JsonV::String(s.to_string(), None),
+        Value::Object(o) => {
             let mut map: HashMap<String, JsonV> = HashMap::new();
-            for k in b.keys() {
-                if let Some(v) = b.get(k) {
+            for k in o.keys() {
+                if let Some(v) = o.get(k) {
                     map.insert(k.to_string(), convert(v));
                 }
             }
             JsonV::Object(map, Vec::new())
         }
         Value::Array(b) => {
-            let na = b.iter().enumerate().map(|(i, v)| (i, convert(v))).collect();
-            JsonV::Array(na, Vec::new())
+            let converted_elements = b.iter().enumerate().map(|(i, v)| (i, convert(v))).collect();
+            JsonV::Array(converted_elements, Vec::new())
         }
     }
 }
 
-fn get_status(j: &JsonV) -> bool {
+fn has_differences(j: &JsonV) -> bool {
     match j {
         JsonV::Null(st) if st.is_some() => true,
         JsonV::String(_, st) if st.is_some() => true,
@@ -229,7 +196,7 @@ fn get_status(j: &JsonV) -> bool {
         JsonV::Number(_, st) if st.is_some() => true,
         JsonV::Object(_, st) if st.is_empty() => true,
         JsonV::Array(_, st) if st.is_empty() => true,
-        _ => false
+        _ => false,
     }
 }
 
