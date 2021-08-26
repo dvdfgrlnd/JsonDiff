@@ -116,7 +116,6 @@ fn diff_rec(a0: &Value, b0: &Value) -> JsonV {
             let arr2_values: Vec<String> = arr2.iter().map(|x| x.to_string()).collect();
 
             let mut res = edit_distance(arr1_values, arr2_values);
-            res.reverse();
             let mut same: Vec<(usize, JsonV)> = Vec::new();
             let mut diffs: Vec<ArrayDiff> = Vec::new();
             let mut i: usize = 0;
