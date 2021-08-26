@@ -75,9 +75,13 @@ fn generate_rec(
         JsonV::Null(st) => {
             if let Some(o) = st {
                 let n1 = generate_rec(indent, o.0, acc, Some(|i, x| Line::DiffPresent(i, x)));
-                let n2 = Node {
+                let mut n2 = Node {
                     previous: Some(Box::new(n1)),
                     content: Line::Text(indent, ", ".to_string()),
+                };
+                n2 = Node {
+                    previous: Some(Box::new(n2)),
+                    content: Line::NewLine,
                 };
                 let n3 = generate_rec(indent, o.1, n2, Some(|i, x| Line::DiffMissing(i, x)));
                 n3
@@ -274,6 +278,10 @@ fn generate_rec(
                         n = generate_rec(indent + 1, v, n, Some(|i, x| Line::DiffPresent(i, x)));
                         n = Node {
                             previous: Some(Box::new(n)),
+                            content: Line::NewLine,
+                        };
+                        n = Node {
+                            previous: Some(Box::new(n)),
                             content: Line::Text(indent + 1, "###, ".to_string()),
                         };
                         n = Node {
@@ -302,16 +310,18 @@ enum L2 {
 
 fn to_html(n: Node) -> String {
     let mut n = Some(Box::new(n));
-    let mut sum: Vec<Vec<String>> = Vec::new();
-    let mut curr: Vec<String> = Vec::new();
+    let mut sum: Vec<Vec<(usize, String)>> = Vec::new();
+    let mut curr: Vec<(usize, String)> = Vec::new();
     while n.is_some() {
         if let Some(n2) = n {
             if let Some(x) = generate_line(n2.content) {
-                match x {
-                    L2::Text(t) => curr.push(t),
+                match x.1 {
+                    L2::Text(t) => curr.push((x.0, t)),
                     L2::Newline => {
-                        curr.reverse();
-                        sum.push(curr);
+                        if curr.len() > 0 {
+                            curr.reverse();
+                            sum.push(curr);
+                        }
                         curr = Vec::new();
                     }
                 }
@@ -326,44 +336,50 @@ fn to_html(n: Node) -> String {
     sum.reverse();
     let mut r = "".to_string();
     for v in sum {
-        r.push_str(&format!("<div>{}</div>", v.join("")));
+        let indent = v.iter().map(|x| x.0).take(1).collect::<Vec<usize>>().pop();
+        if let Some(i) = indent {
+            let v2 = v.iter().map(|x| x.1.clone()).collect::<Vec<_>>().join("");
+            r.push_str(&format!(
+                "<div style=\"margin-left:{}px\">{}</div>",
+                (30 * i).to_string(),
+                v2
+            ));
+        } else {
+            panic!("No indent found!\n {:?}", v);
+        }
     }
-    format!("<div style=\"display: flex; flex-direction: column;\">{}</div>", r)
+    format!(
+        "<div style=\"display: flex; flex-direction: column;\">{}</div>",
+        r
+    )
 }
 
-fn generate_line(n: Line) -> Option<L2> {
+fn generate_line(n: Line) -> Option<(usize, L2)> {
     match n {
-        Line::DiffMissing(indent, x) => Some(L2::Text(missing(indent, x))),
-        Line::DiffPresent(indent, x) => Some(L2::Text(present(indent, x))),
-        Line::NewLine => Some(L2::Newline),
-        Line::Same(indent, x) => Some(L2::Text(same(indent, x))),
+        Line::DiffMissing(indent, x) => Some((indent, L2::Text(missing(indent, x)))),
+        Line::DiffPresent(indent, x) => Some((indent, L2::Text(present(indent, x)))),
+        Line::NewLine => Some((0, L2::Newline)),
+        Line::Same(indent, x) => Some((indent, L2::Text(same(indent, x)))),
         Line::Start => None,
-        Line::Text(indent, s) => Some(L2::Text(same(indent, s))),
+        Line::Text(indent, s) => Some((indent, L2::Text(same(indent, s)))),
     }
 }
 
-fn same(indent: usize, s: String) -> String {
+fn same(_: usize, s: String) -> String {
+    format!("<span class=\"same\" style=\"color:black\">{}</span>\n", s).to_string()
+}
+
+fn present(_: usize, s: String) -> String {
     format!(
-        "<span class=\"same\" style=\"margin-left:{}px;color:black\">{}</span>\n",
-        (30 * indent).to_string(),
+        "<span class=\"present\" style=\"color:green\">+++{}+++</span>\n",
         s
     )
     .to_string()
 }
 
-fn present(indent: usize, s: String) -> String {
+fn missing(_: usize, s: String) -> String {
     format!(
-        "<span class=\"present\" style=\"margin-left:{}px;color:green\">+++{}+++</span>\n",
-        (30 * indent).to_string(),
-        s
-    )
-    .to_string()
-}
-
-fn missing(indent: usize, s: String) -> String {
-    format!(
-        "<span class=\"missing\" style=\"margin-left:{}px;color:red\">---{}---</span>\n",
-        (30 * indent).to_string(),
+        "<span class=\"missing\" style=\"color:red\">---{}---</span>\n",
         s
     )
     .to_string()
