@@ -1,6 +1,6 @@
 use super::json_diff::{ArrayDiff, JsonV, ObjectDiff};
 use std::clone::Clone;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 
 #[derive(Debug, Clone)]
@@ -159,7 +159,7 @@ fn generate_rec(
                 content: Line::NewLine,
             };
             for (_, element) in v {
-                curr_node = generate_rec(indent + 1, element, curr_node, type_to_use);
+                curr_node = generate_rec(indent + 1, element, curr_node, Some(|i, x| Line::Same(i, x)));
                 curr_node = text_node(curr_node, ", ".to_string(), indent);
                 curr_node = newline_node(curr_node);
             }
@@ -339,8 +339,8 @@ mod tests {
     use super::*;
     #[test]
     fn test_generate_html() {
-        let mut map1: HashMap<String, JsonV> = HashMap::new();
-        let mut map2: HashMap<String, JsonV> = HashMap::new();
+        let mut map1: BTreeMap<String, JsonV> = BTreeMap::new();
+        let mut map2: BTreeMap<String, JsonV> = BTreeMap::new();
         map2.insert(
             "item5".to_string(),
             JsonV::String("value5".to_string(), None),

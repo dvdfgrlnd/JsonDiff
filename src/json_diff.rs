@@ -1,5 +1,6 @@
 use serde_json::{Result, Value};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
+use std::fmt;
 
 use super::edit_distance;
 use edit_distance::{edit_distance, EditType};
@@ -11,7 +12,14 @@ pub enum JsonV {
     Bool(bool, Option<Box<JsonVPair>>),
     Number(f64, Option<Box<JsonVPair>>),
     Array(Vec<(usize, JsonV)>, Vec<ArrayDiff>),
-    Object(HashMap<String, JsonV>, Vec<ObjectDiff>),
+    Object(BTreeMap<String, JsonV>, Vec<ObjectDiff>),
+}
+
+impl fmt::Display for JsonV {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.write_str(&format!("{:?}", self))?;
+        Ok(())
+    }
 }
 
 pub type JsonVPair = (JsonV, JsonV);
@@ -51,10 +59,11 @@ fn diff_rec(arg1: &Value, arg2: &Value) -> JsonV {
             // Find fields where the values differ in the two structures
 
             let mut differences: Vec<ObjectDiff> = Vec::new();
-            let mut similarities: HashMap<String, JsonV> = HashMap::new();
+            let mut similarities: BTreeMap<String, JsonV> = BTreeMap::new();
             for key in union(a_keys.clone(), b_keys.clone()) {
                 if let (Some(a_value), Some(b_value)) = (a_obj.get(&key), b_obj.get(&key)) {
                     let json_element = diff_rec(a_value, b_value);
+                    println!("{:?}", json_element);
                     if has_differences(&json_element) {
                         differences.push(ObjectDiff::ObjectValueDiff(key, json_element));
                     } else {
@@ -125,13 +134,11 @@ fn diff_rec(arg1: &Value, arg2: &Value) -> JsonV {
             JsonV::Array(same, diffs)
         }
         (Value::String(s1), Value::String(s2)) => {
-            let k = if s1 == s2 {
+            if s1 == s2 {
                 JsonV::String(s1.to_string(), None)
             } else {
-                let v1 = Box::new((convert(arg1), convert(arg2)));
-                JsonV::String("".to_string(), Some(v1))
-            };
-            k
+                JsonV::String("".to_string(), Some(Box::new((convert(arg1), convert(arg2)))))
+            }
         }
         (Value::Number(n1), Value::Number(n2)) => {
             if cmp_option(n1.as_f64(), n2.as_f64()) {
@@ -173,7 +180,7 @@ fn convert(v: &Value) -> JsonV {
         Value::Number(n) => JsonV::Number(n.as_f64().unwrap_or(0.0), None),
         Value::String(s) => JsonV::String(s.to_string(), None),
         Value::Object(o) => {
-            let mut map: HashMap<String, JsonV> = HashMap::new();
+            let mut map: BTreeMap<String, JsonV> = BTreeMap::new();
             for k in o.keys() {
                 if let Some(v) = o.get(k) {
                     map.insert(k.to_string(), convert(v));
@@ -194,8 +201,8 @@ fn has_differences(j: &JsonV) -> bool {
         JsonV::String(_, st) if st.is_some() => true,
         JsonV::Bool(_, st) if st.is_some() => true,
         JsonV::Number(_, st) if st.is_some() => true,
-        JsonV::Object(_, st) if st.is_empty() => true,
-        JsonV::Array(_, st) if st.is_empty() => true,
+        JsonV::Object(_, st) if !st.is_empty() => true,
+        JsonV::Array(_, st) if !st.is_empty() => true,
         _ => false,
     }
 }
@@ -226,6 +233,42 @@ fn union<T: std::clone::Clone + std::cmp::Ord>(s: Vec<T>, other: Vec<T>) -> Vec<
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
+
+    #[test]
+    fn test_same_object() -> Result<()> {
+        let r = r#"
+            {
+            "f1": "v2",
+            "f2": "v0",
+            "f3": [1,2]
+        }"#;
+        let r2 = r#"
+            {
+            "f1": "v2",
+            "f2": "v0",
+            "f3": [1,2]
+        }"#;
+        let ja: Value = serde_json::from_str(r)?;
+        let jb: Value = serde_json::from_str(r2)?;
+        let c2 = diff_rec(&ja, &jb);
+
+        let mut map2: BTreeMap<String, JsonV> = BTreeMap::new();
+        map2.insert(
+            "f1".to_string(),
+            JsonV::String("v2".to_string(), None),
+        );
+        map2.insert(
+            "f2".to_string(),
+            JsonV::String("v0".to_string(), None),
+        );
+        map2.insert(
+            "f3".to_string(),
+            JsonV::Array(vec![(0, JsonV::Number(1.0, None)), (1, JsonV::Number(2.0, None))], vec![]),
+        );
+        let e = JsonV::Object(map2, vec![]);
+        assert_eq!(c2.to_string(), e.to_string());
+        Ok(())
+    }
 
     #[test]
     fn test_diff_2() -> Result<()> {
