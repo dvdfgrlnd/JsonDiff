@@ -27,6 +27,12 @@ impl fmt::Display for Line {
     }
 }
 
+#[derive(Debug)]
+enum Either<L, R> {
+    Left(L),
+    Right(R),
+}
+
 #[derive(Debug, Clone)]
 struct Node {
     content: Line,
@@ -152,44 +158,27 @@ fn generate_rec(
                 }
             }
         }
-        JsonV::Array(v, st) => {
+        JsonV::Array(v, differences) => {
             let mut curr_node = text_node(last_node, "[".to_string(), indent);
             curr_node = Node {
                 previous: Some(Box::new(curr_node)),
                 content: Line::NewLine,
             };
-            for (_, element) in v {
-                curr_node = generate_rec(indent + 1, element, curr_node, Some(|i, x| Line::Same(i, x)));
+            let elements = get_array_elements_in_order(v, differences);
+            for e in elements {
+                let (element, type_of_line): (JsonV, fn(usize, String) -> Line) = match e {
+                    Either::Left((_, element)) => (element, |i, x| Line::Same(i, x)),
+                    Either::Right(ArrayDiff::ArrayValueInFirst(_, element)) => (element, |i, x| Line::DiffPresent(i, x)),
+                    Either::Right(ArrayDiff::ArrayValueInSecond(_, element)) => (element, |i, x| Line::DiffMissing(i, x)),
+                };
+                curr_node = generate_rec(
+                    indent + 1,
+                    element,
+                    curr_node,
+                    Some(type_of_line),
+                );
                 curr_node = text_node(curr_node, ", ".to_string(), indent);
                 curr_node = newline_node(curr_node);
-            }
-            for s in st {
-                match s {
-                    ArrayDiff::ArrayValueInFirst(_, element) => {
-                        curr_node = generate_rec(
-                            indent + 1,
-                            element,
-                            curr_node,
-                            Some(|i, x| Line::DiffPresent(i, x)),
-                        );
-                        curr_node = text_node(curr_node, ", ".to_string(), indent);
-                        curr_node = newline_node(curr_node);
-                    }
-                    ArrayDiff::ArrayValueInSecond(_, element) => {
-                        curr_node = generate_rec(
-                            indent + 1,
-                            element,
-                            curr_node,
-                            Some(|i, x| Line::DiffMissing(i, x)),
-                        );
-                        curr_node = text_node(curr_node, ", ".to_string(), indent);
-                        curr_node = newline_node(curr_node);
-                    }
-                }
-                curr_node = Node {
-                    previous: Some(Box::new(curr_node)),
-                    content: Line::NewLine,
-                };
             }
 
             curr_node = text_node(curr_node, "]".to_string(), indent);
@@ -249,6 +238,32 @@ fn generate_rec(
     }
 }
 
+type SortNode = Either<(usize, JsonV), ArrayDiff>;
+
+fn get_array_elements_in_order(
+    v: Vec<(usize, JsonV)>,
+    differences: Vec<ArrayDiff>,
+) -> Vec<Either<(usize, JsonV), ArrayDiff>> {
+    let mut all_elements: Vec<SortNode> = Vec::with_capacity(v.len() + differences.len());
+    for e in v {
+        all_elements.push(Either::Left(e));
+    }
+
+    for d in differences {
+        all_elements.push(Either::Right(d));
+    }
+    let get_array_index = |a: &SortNode| -> usize {
+        match a {
+            Either::Left((i, _)) => *i,
+            Either::Right(ArrayDiff::ArrayValueInFirst(i, _)) => *i,
+            Either::Right(ArrayDiff::ArrayValueInSecond(i, _)) => *i,
+        }
+    };
+    all_elements.sort_by(|a, b| get_array_index(a).partial_cmp(&get_array_index(b)).unwrap());
+
+    all_elements
+}
+
 enum L2 {
     Text(String),
     Newline,
@@ -280,13 +295,22 @@ fn to_html(inp_node: Node) -> String {
     if current_line.len() > 0 {
         lines.push(current_line);
     }
-    // Since inp_node start from the bottom the lines should be reversed 
+    // Since inp_node start from the bottom the lines should be reversed
     lines.reverse();
     let mut output_html = "".to_string();
     for single_line in lines {
-        let maybe_indent = single_line.iter().map(|x| x.0).take(1).collect::<Vec<usize>>().pop();
+        let maybe_indent = single_line
+            .iter()
+            .map(|x| x.0)
+            .take(1)
+            .collect::<Vec<usize>>()
+            .pop();
         if let Some(indent) = maybe_indent {
-            let concatenated_line_elements = single_line.iter().map(|x| x.1.clone()).collect::<Vec<_>>().join("");
+            let concatenated_line_elements = single_line
+                .iter()
+                .map(|x| x.1.clone())
+                .collect::<Vec<_>>()
+                .join("");
             output_html.push_str(&format!(
                 "<div style=\"margin-left:{}px\">{}</div>",
                 (30 * indent).to_string(),
@@ -389,5 +413,35 @@ mod tests {
         let res = generate(json);
 
         println!("{}", res);
+    }
+
+    #[test]
+    fn test_keep_array_order() {
+        let arr = vec![(1, JsonV::String("test2".to_string(), None))];
+        let d = vec![ArrayDiff::ArrayValueInFirst(
+            0,
+            JsonV::String("test1".to_string(), None),
+        )];
+        let res = get_array_elements_in_order(
+            Node {
+                previous: None,
+                content: Line::Start,
+            },
+            0,
+            arr,
+            d,
+        );
+
+        let exp: Vec<Either<(usize, JsonV), ArrayDiff>> = vec![
+            Either::Right(ArrayDiff::ArrayValueInFirst(
+                0,
+                JsonV::String("test1".to_string(), None),
+            )),
+            Either::Left((1, JsonV::String("test2".to_string(), None))),
+        ];
+
+        println!("{}", format!("{:?}", res));
+        println!("{}", format!("{:?}", exp));
+        assert_eq!(format!("{:?}", res), format!("{:?}", exp));
     }
 }
