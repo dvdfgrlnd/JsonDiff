@@ -1,4 +1,4 @@
-import init, { find_diff } from "../pkg/jsondiff.js";
+import init, { find_diff } from "jsondiff.js";
 
 
 let r = `
