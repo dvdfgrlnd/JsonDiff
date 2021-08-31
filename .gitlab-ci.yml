@@ -14,9 +14,14 @@ pages:
     - cargo install wasm-pack
     - wasm-pack build --target web
     - mv pkg/jsondiff.js public
+    - mkdir public
     - cp -r web public
   artifacts:
     paths:
       - public
   only:
     - master
+
+cache:
+  paths:
+    - cargo/
