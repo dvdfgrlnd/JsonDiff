@@ -218,7 +218,8 @@ fn generate_rec(
                         curr_node = newline_node(curr_node);
                     }
                     ObjectDiff::ObjectValueDiff(s, v) => {
-                        curr_node = text_node(curr_node, format!("{}: ###", s), indent + 1);
+                        let addon = if is_primitive_json_type(&v) {"###"} else {""};
+                        curr_node = text_node(curr_node, format!("{}: {}", s, addon), indent + 1);
                         curr_node = newline_node(curr_node);
                         curr_node = generate_rec(
                             indent + 1,
@@ -227,7 +228,7 @@ fn generate_rec(
                             Some(|i, x| Line::DiffPresent(i, x)),
                         );
                         curr_node = newline_node(curr_node);
-                        curr_node = text_node(curr_node, "###, ".to_string(), indent + 1);
+                        curr_node = text_node(curr_node, format!("{}, ", addon), indent + 1);
                         curr_node = newline_node(curr_node);
                     }
                 }
@@ -235,6 +236,16 @@ fn generate_rec(
             curr_node = text_node(curr_node, "}".to_string(), indent);
             newline_node(curr_node)
         }
+    }
+}
+
+fn is_primitive_json_type(j: &JsonV) -> bool {
+    match j {
+        JsonV::Null(_) => true,
+        JsonV::Bool(_, _) => true,
+        JsonV::Number(_, _) => true,
+        JsonV::String(_, _) => true,
+        _ => false
     }
 }
 
@@ -423,11 +434,6 @@ mod tests {
             JsonV::String("test1".to_string(), None),
         )];
         let res = get_array_elements_in_order(
-            Node {
-                previous: None,
-                content: Line::Start,
-            },
-            0,
             arr,
             d,
         );

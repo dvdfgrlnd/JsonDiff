@@ -63,7 +63,6 @@ fn diff_rec(arg1: &Value, arg2: &Value) -> JsonV {
             for key in union(a_keys.clone(), b_keys.clone()) {
                 if let (Some(a_value), Some(b_value)) = (a_obj.get(&key), b_obj.get(&key)) {
                     let json_element = diff_rec(a_value, b_value);
-                    println!("{:?}", json_element);
                     if has_differences(&json_element) {
                         differences.push(ObjectDiff::ObjectValueDiff(key, json_element));
                     } else {
@@ -72,7 +71,6 @@ fn diff_rec(arg1: &Value, arg2: &Value) -> JsonV {
                 }
             }
 
-            // let df = differences.clone();
 
             let all_differences = if fields_in_a_not_b.is_empty()
                 && fields_in_b_not_a.is_empty()
@@ -165,7 +163,6 @@ fn diff_rec(arg1: &Value, arg2: &Value) -> JsonV {
 fn cmp_option<T: std::string::ToString>(a: Option<T>, b: Option<T>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => {
-            // println!("7. {:?} {:?}", a.to_string(), b.to_string());
             a.to_string() == b.to_string()
         }
         (None, None) => false,
