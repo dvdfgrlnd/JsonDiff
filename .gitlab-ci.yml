@@ -11,10 +11,11 @@ image: rust:latest
 
 pages:
   script:
-    - cargo install wasm-pack
-    - wasm-pack build --target web
+    - mkdir public
     - mv pkg/jsondiff.js public
     - mv web public
+    - cargo install wasm-pack
+    - wasm-pack build --target web
   artifacts:
     paths:
       - public
