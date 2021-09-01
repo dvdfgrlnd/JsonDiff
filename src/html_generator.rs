@@ -181,8 +181,7 @@ fn generate_rec(
                 curr_node = newline_node(curr_node);
             }
 
-            curr_node = text_node(curr_node, "]".to_string(), indent);
-            newline_node(curr_node)
+            text_node(curr_node, "]".to_string(), indent)
         }
         JsonV::Object(h, st) => {
             let mut curr_node = text_node(last_node, "{".to_string(), indent);
@@ -233,8 +232,7 @@ fn generate_rec(
                     }
                 }
             }
-            curr_node = text_node(curr_node, "}".to_string(), indent);
-            newline_node(curr_node)
+            text_node(curr_node, "}".to_string(), indent)
         }
     }
 }
