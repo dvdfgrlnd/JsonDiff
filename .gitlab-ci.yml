@@ -12,7 +12,7 @@ image: rust:latest
 pages:
   script:
     - mkdir public
-    - mv web public
+    - mv web/* public
     - cargo install wasm-pack
     - wasm-pack build --target web
     - mv pkg/jsondiff.js public
