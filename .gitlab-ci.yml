@@ -9,6 +9,9 @@ image: rust:latest
   # paths:
     # - node_modules/
 
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/cargo
+
 pages:
   script:
     - mkdir public
@@ -24,4 +27,4 @@ pages:
 
 cache:
   paths:
-    - cargo/
+    - $CARGO_HOME
