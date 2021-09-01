@@ -15,7 +15,7 @@ pages:
     - mv web/* public
     - cargo install wasm-pack
     - wasm-pack build --target web
-    - mv pkg/jsondiff.js public
+    - mv pkg/* public
   artifacts:
     paths:
       - public
