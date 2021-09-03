@@ -167,7 +167,7 @@ fn generate_rec(
             let elements = get_array_elements_in_order(v, differences);
             for e in elements {
                 let (element, type_of_line): (JsonV, fn(usize, String) -> Line) = match e {
-                    Either::Left((_, element)) => (element, |i, x| Line::Same(i, x)),
+                    Either::Left((_, element)) => (element, type_to_use.unwrap_or(|i, x| Line::Same(i, x))),
                     Either::Right(ArrayDiff::ArrayValueInFirst(_, element)) => (element, |i, x| Line::DiffPresent(i, x)),
                     Either::Right(ArrayDiff::ArrayValueInSecond(_, element)) => (element, |i, x| Line::DiffMissing(i, x)),
                 };
@@ -224,7 +224,7 @@ fn generate_rec(
                             indent + 1,
                             v,
                             curr_node,
-                            Some(|i, x| Line::DiffPresent(i, x)),
+                            Some(|i, x| Line::Same(i, x)),
                         );
                         curr_node = newline_node(curr_node);
                         curr_node = text_node(curr_node, format!("{}, ", addon), indent + 1);
