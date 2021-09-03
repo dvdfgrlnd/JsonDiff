@@ -347,7 +347,7 @@ fn generate_line(line: Line) -> Option<(usize, L2)> {
 }
 
 fn same(s: String) -> String {
-    format!("<span class=\"same\" style=\"color:black\">{}</span>\n", s).to_string()
+    format!("<span class=\"same\" >{}</span>\n", s).to_string()
 }
 
 fn present(s: String) -> String {
