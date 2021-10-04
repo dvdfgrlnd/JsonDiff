@@ -1,0 +1,12 @@
+{
+  "name": "jsondiff",
+  "version": "0.1.0",
+  "files": [
+    "jsondiff_bg.wasm",
+    "jsondiff.js",
+    "jsondiff.d.ts"
+  ],
+  "module": "jsondiff.js",
+  "types": "jsondiff.d.ts",
+  "sideEffects": false
+}
