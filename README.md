@@ -3,7 +3,7 @@
 
 ## Description
 
-A tool to find differences in json data. 
+A tool to find differences in json data. The processing is done in rust using webassembly.
 
 Test [here](https://dvdfgrlnd.github.io/JsonDiff/web_output/index.html).
 
